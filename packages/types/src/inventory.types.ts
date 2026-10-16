@@ -42,9 +42,13 @@ export interface InventoryAlert {
   currentQuantity: number
   lowStockThreshold: number | null
   reorderPoint: number | null
+  /** The level the product is reordered towards (reorder point, else threshold; the sum of
+   * its variants' for a product with variants). */
+  target?: number
+  /** How much to order: @biztrack/domain suggestedReorderQuantity. */
   shortfall: number
   /** Sales velocity in units/day over the trailing window, excluding stock-out days
-   * (BIZ-4.6). null when there's too little history/sales to trust — see @biztrack/utils
+   * (BIZ-4.6). null when there's too little history/sales to trust — see @biztrack/domain
    * computeReorderVelocity. */
   velocity?: number | null
   /** Days of stock left at the current velocity ("Reste N jours"). null when untrusted. */

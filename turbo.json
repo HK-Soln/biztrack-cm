@@ -3,6 +3,7 @@
   "ui": "tui",
   "globalEnv": [
     "DATABASE_URL",
+    "TEST_DATABASE_URL",
     "NODE_ENV",
     "DESKTOP_FORCE_PRODUCTION",
     "DESKTOP_RENDERER_URL",

@@ -1,3 +1,4 @@
+import { checkVariantCount, newVariantStockLevel, variantSignature } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, ILike, In, IsNull, Repository } from 'typeorm'
@@ -283,9 +284,15 @@ export class ProductVariantsService {
         ),
       )
 
-      // Per-variant stock. Serialised variants derive stock from serial units.
-      if (product.trackInventory && !product.isSerialized) {
-        const quantity = override?.openingStock ?? 0
+      // Per-variant stock (@biztrack/domain newVariantStockLevel); a serialized variant's
+      // stock is its units.
+      const newLevel = newVariantStockLevel({
+        trackInventory: product.trackInventory,
+        isSerialized: product.isSerialized,
+        openingStock: override?.openingStock,
+      })
+      if (newLevel) {
+        const quantity = newLevel.quantity
         await inventoryRepo.save(
           inventoryRepo.create({
             businessId,
@@ -320,10 +327,11 @@ export class ProductVariantsService {
       created.push(variant)
     }
 
-    if (created.length < 2) {
+    // A variant product needs at least one variant; more can be added later (ruling R14).
+    if (checkVariantCount(created.length)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.variant_min_two'),
-        'VARIANT_MIN_TWO',
+        'PRODUCT_VARIANTS_REQUIRED',
       )
     }
 
@@ -417,11 +425,8 @@ export class ProductVariantsService {
     overrides: VariantOverride[],
     combo: AttributeOption[],
   ): VariantOverride | undefined {
-    const key = combo
-      .map((option) => option.id)
-      .sort()
-      .join('|')
-    return overrides.find((override) => [...override.optionIds].sort().join('|') === key)
+    const key = variantSignature(combo.map((option) => option.id))
+    return overrides.find((override) => variantSignature(override.optionIds) === key)
   }
 
   private async handleServiceError(

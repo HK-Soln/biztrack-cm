@@ -7,16 +7,18 @@ import type { ProductCategoriesRepository } from '../repositories/product-catego
 // checked with `withDeleted: true` — otherwise a base slug still held by a soft-deleted product
 // looks free, gets handed back, and the INSERT/UPDATE fails with a duplicate-key violation.
 const makeService = (taken: Set<string>) => {
-  const findOne = jest.fn(async (opts: { where: { slug: string }; withDeleted?: boolean }) => {
-    // Every uniqueness probe must include soft-deleted rows.
-    expect(opts.withDeleted).toBe(true)
-    return taken.has(opts.where.slug) ? { id: 'other', slug: opts.where.slug } : null
-  })
-  const productsRepo = { findOne } as unknown as ProductsRepository
+  const qb = {
+    withDeleted: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getRawMany: jest.fn(async () => [...taken].map((slug) => ({ slug }))),
+  }
+  const productsRepo = { createQueryBuilder: jest.fn(() => qb) } as unknown as ProductsRepository
   const categoriesRepo = {
-    findOne: jest.fn(async () => null),
+    createQueryBuilder: jest.fn(() => qb),
   } as unknown as ProductCategoriesRepository
-  return { svc: new SlugService(productsRepo, categoriesRepo), findOne }
+  return { svc: new SlugService(productsRepo, categoriesRepo), withDeleted: qb.withDeleted }
 }
 
 describe('SlugService — product slug uniqueness', () => {
@@ -26,9 +28,9 @@ describe('SlugService — product slug uniqueness', () => {
   })
 
   it('appends a suffix when the base slug is taken — including by soft-deleted rows', async () => {
-    const { svc, findOne } = makeService(new Set(['widget']))
+    const { svc, withDeleted } = makeService(new Set(['widget']))
     await expect(svc.generateProductSlug('Widget', 'biz')).resolves.toBe('widget-2')
-    expect(findOne).toHaveBeenCalledWith(expect.objectContaining({ withDeleted: true }))
+    expect(withDeleted).toHaveBeenCalled()
   })
 
   it('keeps climbing suffixes until a free slug is found', async () => {

@@ -18,7 +18,11 @@ import { serializeDto, serializePaginatedResult } from '@/common/http/serializat
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
-import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
+import {
+  RequireResource,
+  RequireStaffAction,
+  ResourceGuard,
+} from '@/modules/permissions/guards/resource.guard'
 import { AddProductVariantDto } from '../dto/add-product-variant.dto'
 import { ListVariantsQueryDto } from '../dto/list-variants-query.dto'
 import { RemoveProductVariantDto } from '../dto/remove-product-variant.dto'
@@ -89,6 +93,7 @@ export class ProductVariantsController {
   }
 
   @Delete(':variantId')
+  @RequireStaffAction('PRODUCT_DELETE')
   @RequireResource(Resource.INVENTORY_ADJUST)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a variant (writes off its stock → stock-out movement)' })

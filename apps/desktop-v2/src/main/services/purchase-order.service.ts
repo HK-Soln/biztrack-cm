@@ -1,3 +1,4 @@
+import { checkPurchaseOrder, priceOrderLines, type PurchaseOrderRejection } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -46,6 +47,12 @@ const COLS = `p.id, p.number, p.rfq_id, p.supplier_id, p.supplier_name, p.title,
  * writes go local + sync_outbox (entity `purchaseOrders` → server `purchase_order`, items
  * nested) and nudge a sync. Sending (PDF + WhatsApp/email) is handled by DocumentService.
  */
+const PO_MESSAGES: Record<PurchaseOrderRejection, string> = {
+  PO_ITEMS_REQUIRED: 'Add at least one item to the order.',
+  PO_ITEM_QTY_INVALID: 'Each item needs a quantity greater than 0.',
+  PO_TOTAL_ZERO: 'The order total must be greater than 0.',
+}
+
 export class PurchaseOrderService {
   constructor(
     private readonly db: DatabaseService,
@@ -123,8 +130,6 @@ export class PurchaseOrderService {
     if (!input.supplierId) throw new Error('Select a supplier.')
     if (!input.items?.length) throw new Error('Add at least one item.')
     const lines = input.items.map((it) => {
-      if (!Number.isFinite(it.quantity) || it.quantity <= 0)
-        throw new Error('Each item needs a quantity greater than 0.')
       return {
         productId: it.productId,
         variantId: it.variantId ?? null,
@@ -134,8 +139,9 @@ export class PurchaseOrderService {
         unitPrice: it.unitPrice ?? 0,
       }
     })
-    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
-      throw new Error('The order total must be greater than 0.')
+    // Lines with a quantity, worth something: @biztrack/domain's rule, as on the server.
+    const problem = checkPurchaseOrder(lines)
+    if (problem) throw new Error(PO_MESSAGES[problem])
     return this.insert(businessId, {
       rfqId: input.rfqId ?? null,
       supplierId: input.supplierId,
@@ -167,8 +173,6 @@ export class PurchaseOrderService {
     if (!input.items?.length) throw new Error('Add at least one item to the order.')
 
     const lines = input.items.map((it) => {
-      if (!Number.isFinite(it.quantity) || it.quantity <= 0)
-        throw new Error('Each item needs a quantity greater than 0.')
       return {
         productId: it.productId,
         variantId: it.variantId ?? null,
@@ -178,8 +182,9 @@ export class PurchaseOrderService {
         unitPrice: it.unitPrice ?? 0,
       }
     })
-    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
-      throw new Error('The order total must be greater than 0.')
+    // Lines with a quantity, worth something: @biztrack/domain's rule, as on the server.
+    const problem = checkPurchaseOrder(lines)
+    if (problem) throw new Error(PO_MESSAGES[problem])
     const po = this.insert(businessId, {
       rfqId,
       supplierId: supplier.supplier_id,
@@ -308,14 +313,16 @@ export class PurchaseOrderService {
       `SELECT i.description, i.quantity, i.unit_price, pr.sku FROM purchase_order_items i LEFT JOIN products pr ON pr.id = i.product_id WHERE i.purchase_order_id = ? ORDER BY i.created_at ASC`,
       [poId],
     )
-    const docItems = items.map((i) => ({
-      description: i.description,
-      sku: i.sku,
-      quantity: i.quantity,
-      unitPrice: i.unit_price,
-      lineTotal: i.quantity * i.unit_price,
-    }))
-    const subtotal = docItems.reduce((s, i) => s + i.lineTotal, 0)
+    const priced = priceOrderLines(
+      items.map((i) => ({
+        description: i.description,
+        sku: i.sku,
+        quantity: i.quantity,
+        unitPrice: i.unit_price,
+      })),
+    )
+    const docItems = priced.lines
+    const subtotal = priced.total
     return {
       number: po.number,
       title: po.title,
@@ -366,7 +373,7 @@ export class PurchaseOrderService {
     const id = randomUUID()
     const now = new Date().toISOString()
     const number = this.nextNumber(businessId)
-    const total = data.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
+    const total = priceOrderLines(data.lines).total
     // Local trading day (BIZ-5.1) from the PO's timestamp.
     const businessDate = localBusinessDate(now)
 
@@ -424,7 +431,10 @@ export class PurchaseOrderService {
         quantity: number
         unit_price: number
         received_quantity: number
-      }>(`SELECT id, product_id, variant_id, description, quantity, unit_price, received_quantity FROM purchase_order_items WHERE purchase_order_id = ? ORDER BY created_at ASC`, [poId])
+      }>(
+        `SELECT id, product_id, variant_id, description, quantity, unit_price, received_quantity FROM purchase_order_items WHERE purchase_order_id = ? ORDER BY created_at ASC`,
+        [poId],
+      )
       .map((r) => ({
         id: r.id,
         productId: r.product_id,

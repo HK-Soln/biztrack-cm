@@ -10,6 +10,7 @@ import { useT } from '@/i18n'
 import { validateSerial } from '@/lib/serial'
 import { FileUpload } from '@/components/FileUpload'
 import type { LocalProduct, LocalSerialUnit } from '@shared/ipc'
+import { useStaffMay } from '@/lib/staff'
 
 const PAGE_SIZE = 5
 
@@ -29,6 +30,7 @@ export function ManageSerialUnits({
   variant?: { id: string; name: string; stock: number }
 }) {
   const t = useT()
+  const mayRetire = useStaffMay('STOCK_ADJUST')
   const qc = useQueryClient()
   const bp = useBreakpoint()
   const id = product.id
@@ -546,14 +548,16 @@ export function ManageSerialUnits({
                     <button type="button" title={t('psu.edit')} onClick={() => startEdit(u)}>
                       {editIcon}
                     </button>
-                    <button
-                      type="button"
-                      title={t('psu.retire')}
-                      onClick={() => setRetire(u)}
-                      style={{ color: 'var(--danger)' }}
-                    >
-                      {retireIcon}
-                    </button>
+                    {mayRetire ? (
+                      <button
+                        type="button"
+                        title={t('psu.retire')}
+                        onClick={() => setRetire(u)}
+                        style={{ color: 'var(--danger)' }}
+                      >
+                        {retireIcon}
+                      </button>
+                    ) : null}
                   </span>
                 ) : null}
               </div>
@@ -607,14 +611,16 @@ export function ManageSerialUnits({
                       <button type="button" title={t('psu.edit')} onClick={() => startEdit(u)}>
                         {editIcon}
                       </button>
-                      <button
-                        type="button"
-                        title={t('psu.retire')}
-                        onClick={() => setRetire(u)}
-                        style={{ color: 'var(--danger)' }}
-                      >
-                        {retireIcon}
-                      </button>
+                      {mayRetire ? (
+                        <button
+                          type="button"
+                          title={t('psu.retire')}
+                          onClick={() => setRetire(u)}
+                          style={{ color: 'var(--danger)' }}
+                        >
+                          {retireIcon}
+                        </button>
+                      ) : null}
                     </span>
                   ) : (
                     <span style={{ color: 'var(--text-muted)' }}>—</span>

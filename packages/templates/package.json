@@ -16,6 +16,9 @@
     "lint": "eslint . --max-warnings 0",
     "type-check": "tsc --noEmit"
   },
+  "dependencies": {
+    "@biztrack/domain": "workspace:*"
+  },
   "devDependencies": {
     "@biztrack/types": "workspace:*",
     "@biztrack/eslint-config": "workspace:*",

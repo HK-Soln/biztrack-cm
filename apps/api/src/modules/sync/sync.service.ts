@@ -1,4 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common'
+import {
+  categoryTakesProducts,
+  decideCategoryPlacement,
+  decideCategoryRemoval,
+} from '@/modules/products/category-placement'
+import { removeProduct, removeVariant, retireSerialUnit } from '@/modules/products/catalog-removal'
 import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { plainToInstance } from 'class-transformer'
@@ -55,6 +61,37 @@ import type {
   JwtPayload,
 } from '@biztrack/types'
 import {
+  checkContactArchive,
+  checkContactInput,
+  checkOpeningBalance,
+  checkProductKind,
+  checkProductSku,
+  checkStockAdjustmentTarget,
+  checkSyncedDebt,
+  checkUnitEditable,
+  checkUnitRemoval,
+  contactNameKey,
+  debtAfterChange,
+  decideSerialAdd,
+  decideStockAdjustment,
+  decideUnit,
+  findContactClashes,
+  findVariantSkuClash,
+  newProductStockLevel,
+  newVariantStockLevel,
+  normalizeEmail,
+  normalizePhone,
+  normalizeVariantSku,
+  openDebtSql,
+  productKindToStore,
+  serialStockChange,
+  slugify,
+  stockChangeMovementType,
+  stockLevelOnEdit,
+  toWholeXaf,
+  validateSerialNumber,
+} from '@biztrack/domain'
+import {
   AttributeDisplayType,
   ContactType,
   DebtDirection,
@@ -70,7 +107,6 @@ import {
   RfqSupplierStatus,
   SerialType,
   SerialUnitStatus,
-  StockAdjustmentType,
   UnitOfMeasureType,
   NotificationType,
 } from '@biztrack/types'
@@ -84,6 +120,7 @@ import { DataSource, In, IsNull, QueryFailedError, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
+  AppConflictException,
   AppInternalServerException,
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
@@ -103,6 +140,14 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
+import {
+  applyAttributeGroupRemoval,
+  applyBrandRemoval,
+  decideAttributeOptionRemoval,
+  decideModelRemoval,
+  loadAttributeGroupRemovalPlan,
+  loadBrandRemovalPlan,
+} from '@/modules/products/catalog-usage'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
@@ -141,7 +186,6 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
 import { CreateProductDto } from '@/modules/products/dto/create-product.dto'
-import { CreateUnitOfMeasureDto } from '@/modules/products/dto/create-unit-of-measure.dto'
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
 import { ProductsRepository } from '@/modules/products/repositories/products.repository'
@@ -1171,9 +1215,7 @@ export class SyncService {
         saleReturnItems: saleReturnItems.map((record) => this.toSaleReturnItemSyncRecord(record)),
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
-        incomeCategories: incomeCategories.map((record) =>
-          this.toIncomeCategorySyncRecord(record),
-        ),
+        incomeCategories: incomeCategories.map((record) => this.toIncomeCategorySyncRecord(record)),
         otherIncomes: otherIncomes.map((record) => this.toOtherIncomeSyncRecord(record)),
         teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
         memberAuthCredentials: memberAuthCredentials.map((record) =>
@@ -1776,6 +1818,20 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        // Only an empty category is deleted, as on the server's own path and the till (R12).
+        const problem = await decideCategoryRemoval(
+          this.dataSource.manager,
+          businessId,
+          existing.id,
+        )
+        if (problem) {
+          throw new AppBadRequestException(
+            problem === 'CATEGORY_HAS_CHILDREN'
+              ? 'This category has sub-categories and cannot be deleted.'
+              : 'This category is still used by one or more products and cannot be deleted.',
+            problem,
+          )
+        }
         await this.categoriesRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -1805,15 +1861,23 @@ export class SyncService {
       existing?.id,
     )
 
-    // Resolve hierarchy: prefer the authoritative depth from the parent when it's
-    // present; otherwise trust the client's computed depth (the parent FK will defer
-    // the op if the parent genuinely hasn't synced yet).
-    const parentId = this.normalizeOptionalString(payload.parentId)
-    let depth = payload.depth ?? 1
-    if (parentId) {
-      const parent = await this.categoriesRepo.findOne({ where: { id: parentId, businessId } })
-      if (parent) depth = parent.depth + 1
+    // Where it sits follows the same rule as the server's own path and the till (R12): at
+    // most three levels, never under a category holding products or variant options, and
+    // only a category without sub-categories moves. The depth is the server's, not the till's.
+    const placement = await decideCategoryPlacement(this.dataSource.manager, {
+      businessId,
+      selfId: existing?.id ?? null,
+      currentParentId: existing ? (existing.parentId ?? null) : null,
+      nextParentId: this.normalizeOptionalString(payload.parentId),
+    })
+    if (!placement.ok) {
+      throw new AppBadRequestException(
+        `This category cannot be placed there (${placement.code}).`,
+        placement.code,
+      )
     }
+    const parentId = placement.parentId
+    const depth = existing && !placement.moved ? existing.depth : placement.depth
 
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
@@ -1889,11 +1953,24 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
-        await this.attributeGroupsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
+        // As on the server's own path and the till: only an unused attribute goes, with its
+        // options (R12).
+        const plan = await loadAttributeGroupRemovalPlan(
+          this.dataSource.manager,
+          businessId,
+          existing.id,
+        )
+        if (!plan.ok) {
+          throw new AppBadRequestException(
+            plan.cause === 'CATEGORIES'
+              ? 'This attribute is linked to one or more categories and cannot be deleted.'
+              : 'This attribute is still used by one or more product variants and cannot be deleted.',
+            plan.code,
+          )
+        }
+        await this.dataSource.transaction((manager) =>
+          applyAttributeGroupRemoval(manager, businessId, plan, operation.recordUpdatedAt),
+        )
       }
       return { status: 'applied' }
     }
@@ -1943,6 +2020,12 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        if (await decideAttributeOptionRemoval(this.dataSource.manager, businessId, existing.id)) {
+          throw new AppBadRequestException(
+            'This option is still used by one or more product variants and cannot be deleted.',
+            'ATTRIBUTE_OPTION_IN_USE',
+          )
+        }
         await this.attributeOptionsRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -2068,17 +2151,24 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
-        await this.brandsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
+        // As on the server's own path: only an unused brand goes, with its models and
+        // category links (R12).
+        const plan = await loadBrandRemovalPlan(this.dataSource.manager, businessId, existing.id)
+        if (!plan.ok) {
+          throw new AppBadRequestException(
+            'This brand is still used by one or more products and cannot be deleted.',
+            'BRAND_IN_USE',
+          )
+        }
+        await this.dataSource.transaction((manager) =>
+          applyBrandRemoval(manager, businessId, plan, operation.recordUpdatedAt),
+        )
       }
       return { status: 'applied' }
     }
 
     const payload = this.readBrandPayload(operation.payload)
-    const slug = payload.slug?.trim() || this.slugify(payload.name!)
+    const slug = payload.slug?.trim() || slugify(payload.name!, 140)
 
     if (existing) {
       await this.brandsRepo.update(operation.recordId, {
@@ -2126,6 +2216,12 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        if (await decideModelRemoval(this.dataSource.manager, businessId, existing.id)) {
+          throw new AppBadRequestException(
+            'This model is still used by one or more products and cannot be deleted.',
+            'MODEL_IN_USE',
+          )
+        }
         await this.modelsRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -2338,8 +2434,7 @@ export class SyncService {
     if (change === 0) return
     const hasHistory =
       (await this.inventoryMovementsRepo.count({ where: { businessId, productId } })) > 0
-    const type =
-      change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    const type = MovementType[stockChangeMovementType({ change, hasHistory })]
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, createdAt)
     await this.inventoryMovementsRepo.save(
@@ -2375,12 +2470,20 @@ export class SyncService {
     }
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
-      if (existing) {
-        await this.productVariantsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
+      // Removed on a till: its stock is written off as the server's own removal does (R18).
+      if (existing && !existing.deletedAt) {
+        const product = await this.productsRepo.findOne({
+          where: { id: existing.productId, businessId },
+          withDeleted: true,
         })
+        const ctx = await this.syncRemovalContext(businessId, operation.recordUpdatedAt)
+        await this.dataSource.transaction((manager) =>
+          removeVariant(manager, ctx, {
+            product: { id: existing.productId, isSerialized: !!product?.isSerialized },
+            variantId: existing.id,
+            reason: 'Removed at the till',
+          }),
+        )
         await this.refreshHasVariants(businessId, existing.productId)
       }
       return { status: 'applied' }
@@ -2400,7 +2503,7 @@ export class SyncService {
       displayNameOverride: this.normalizeOptionalString(payload.displayNameOverride),
       priceOverride: payload.priceOverride ?? null,
       costPriceOverride: payload.costPriceOverride ?? null,
-      sku: this.normalizeOptionalString(payload.sku),
+      sku: normalizeVariantSku(payload.sku),
       barcode: this.normalizeOptionalString(payload.barcode),
       isActive: payload.isActive ?? existing?.isActive ?? true,
       sortOrder: payload.sortOrder ?? existing?.sortOrder ?? 0,
@@ -2409,6 +2512,21 @@ export class SyncService {
       metaDescription: this.normalizeOptionalString(payload.metaDescription),
       onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
       isPublishedOnline: payload.isPublishedOnline ?? existing?.isPublishedOnline ?? false,
+    }
+
+    // A variant SKU is unique among the business's live variants, as on the server's own
+    // path and the till (R12).
+    if (fields.sku) {
+      const holders = await this.productVariantsRepo.find({
+        select: { id: true, sku: true },
+        where: { businessId, sku: fields.sku, deletedAt: IsNull() },
+      })
+      if (findVariantSkuClash([{ id: operation.recordId, sku: fields.sku }], holders)) {
+        throw new AppBadRequestException(
+          `The code "${fields.sku}" is already used by another variant.`,
+          'VARIANT_DUPLICATE_SKU',
+        )
+      }
     }
 
     if (existing) {
@@ -2434,12 +2552,20 @@ export class SyncService {
     )
     // Seed the variant's inventory level from opening stock (non-serialised products).
     const parentProduct = await this.productsRepo.findOne({ where: { id: productId, businessId } })
-    if (parentProduct && !parentProduct.isSerialized && parentProduct.trackInventory) {
+    // The level a new variant starts with (@biztrack/domain newVariantStockLevel).
+    const newLevel = parentProduct
+      ? newVariantStockLevel({
+          trackInventory: parentProduct.trackInventory,
+          isSerialized: parentProduct.isSerialized,
+          openingStock: payload.openingStock,
+        })
+      : null
+    if (newLevel) {
       const level = await this.inventoryLevelsRepo.findOne({
         where: { businessId, productId, variantId: operation.recordId },
       })
       if (!level) {
-        const openingStock = Math.max(payload.openingStock ?? 0, 0)
+        const openingStock = newLevel.quantity
         await this.inventoryLevelsRepo.save(
           this.inventoryLevelsRepo.create({
             businessId,
@@ -2564,25 +2690,18 @@ export class SyncService {
     }
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
-      if (existing) {
-        const wasInStock = !existing.deletedAt && existing.status === SerialUnitStatus.IN_STOCK
-        await this.productSerialUnitsRepo.update(operation.recordId, {
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
-        // Retiring an in-stock unit is a stock-out — mirror the desktop ledger entry.
-        if (wasInStock) {
-          await this.recordSyncStockMovement(
-            businessId,
-            existing.productId,
-            -1,
-            await this.countInStockSerials(businessId, existing.productId),
-            'serial_unit',
-            operation.recordId,
-            'Retired serial unit',
-            operation.recordUpdatedAt,
-            existing.variantId ?? null,
+      if (existing && !existing.deletedAt) {
+        if (existing.status === SerialUnitStatus.IN_STOCK) {
+          // Retiring an in-stock unit on a till is retired here the same way (R18).
+          const ctx = await this.syncRemovalContext(businessId, operation.recordUpdatedAt)
+          await this.dataSource.transaction((manager) =>
+            retireSerialUnit(manager, ctx, existing, 'Retired at the till'),
           )
+        } else {
+          await this.productSerialUnitsRepo.update(operation.recordId, {
+            deletedAt: operation.recordUpdatedAt,
+            updatedAt: operation.recordUpdatedAt,
+          })
         }
       }
       return { status: 'applied' }
@@ -2598,6 +2717,39 @@ export class SyncService {
         'SYNC_SERIAL_UNIT_INVALID',
       )
     }
+    // The number has the shape its type needs, as on the server's own path and the till (R12).
+    if (!validateSerialNumber(serialNumber, serialType)) {
+      throw new AppBadRequestException(
+        `Serial number "${serialNumber}" is not a valid ${serialType}.`,
+        'SERIAL_NUMBER_INVALID',
+      )
+    }
+    // Another unit already holding the number (numbers are unique per business).
+    const holder = await this.productSerialUnitsRepo.findOne({
+      where: { businessId, serialNumber },
+      withDeleted: true,
+    })
+    const otherHolder = holder && holder.id !== operation.recordId ? holder : null
+    if (otherHolder) {
+      // The same rule as the server's own path (@biztrack/domain decideSerialAdd): a number
+      // on hand is a duplicate; a sold or retired one lives on its own unit, which a till
+      // brings back by that unit, not by a new one.
+      const decision = decideSerialAdd({
+        serialNumber,
+        serialType,
+        holder: {
+          id: otherHolder.id,
+          status: otherHolder.status,
+          deleted: otherHolder.deletedAt != null,
+        },
+      })
+      return {
+        status: 'failed',
+        errorMessage: `Serial number "${serialNumber}" is already used by another unit (${
+          decision.ok ? 'SERIAL_IN_USE' : decision.code
+        }).`,
+      }
+    }
 
     const variantId =
       payload.variantId === undefined ? (existing?.variantId ?? null) : payload.variantId
@@ -2606,7 +2758,7 @@ export class SyncService {
       SerialUnitStatus.IN_STOCK) as SerialUnitStatus
 
     if (existing) {
-      const wasInStock = !existing.deletedAt && existing.status === SerialUnitStatus.IN_STOCK
+      const before = { status: existing.status, deleted: existing.deletedAt != null }
       await this.productSerialUnitsRepo.update(operation.recordId, {
         productId,
         variantId,
@@ -2624,7 +2776,7 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
       // Reviving a retired/sold unit back into stock is a stock-in; a plain rename is not.
-      const change = (status === SerialUnitStatus.IN_STOCK ? 1 : 0) - (wasInStock ? 1 : 0)
+      const change = serialStockChange(before, { status, deleted: false })
       if (change !== 0) {
         await this.recordSyncStockMovement(
           businessId,
@@ -2659,7 +2811,7 @@ export class SyncService {
       }),
     )
     // A new in-stock unit is a stock-in — mirror the desktop ledger entry.
-    if (status === SerialUnitStatus.IN_STOCK) {
+    if (serialStockChange(null, { status, deleted: false }) > 0) {
       await this.recordSyncStockMovement(
         businessId,
         productId,
@@ -2692,6 +2844,19 @@ export class SyncService {
 
     if (operation.action === 'DELETE') {
       if (existing) {
+        // One with open debts cannot be archived (@biztrack/domain checkContactArchive).
+        if (
+          checkContactArchive({
+            wasActive: existing.isActive,
+            isActive: false,
+            hasOpenDebts: await this.contactHasOpenDebts(businessId, existing.id),
+          })
+        ) {
+          throw new AppBadRequestException(
+            'This contact has open balances and cannot be archived.',
+            'CONTACT_HAS_OPEN_DEBTS',
+          )
+        }
         await this.contactsRepo.update(operation.recordId, {
           isActive: false,
           updatedAt: operation.recordUpdatedAt,
@@ -2702,10 +2867,36 @@ export class SyncService {
     }
 
     const payload = this.readContactPayload(operation.payload)
-    const normalizedName = payload.name?.trim() || ''
-    if (!normalizedName) {
-      throw new AppBadRequestException('Contact name is required.', 'CONTACT_NAME_REQUIRED')
+    // A name, valid phones and email (@biztrack/domain checkContactInput, as the till did).
+    const problem = checkContactInput(payload)
+    if (problem) {
+      throw new AppBadRequestException(
+        {
+          CONTACT_NAME_REQUIRED: 'Contact name is required.',
+          CONTACT_PHONE_INVALID: 'A phone number of this contact is not valid.',
+          CONTACT_EMAIL_INVALID: 'The email of this contact is not valid.',
+        }[problem],
+        problem,
+      )
     }
+    const normalizedName = payload.name!.trim()
+    // The name is unique in the business, as on the server's own path and the till (R12,
+    // R16). A phone or email shared with another contact is accepted: the till already asked
+    // the person and they chose to create it anyway.
+    const others = await this.contactsRepo.find({ where: { businessId } })
+    const { nameTaken } = findContactClashes(
+      { name: normalizedName, selfId: operation.recordId },
+      others,
+    )
+    if (nameTaken) {
+      throw new AppConflictException(
+        `Another contact is already named "${nameTaken.name}".`,
+        'CONTACT_NAME_TAKEN',
+        { contactId: nameTaken.id, name: nameTaken.name },
+      )
+    }
+    // Phones in international form (checked valid above).
+    const contactPhone = (value?: string | null) => normalizePhone(value)
 
     const createdById = await this.resolveContactCreatedById(businessId, payload.createdById)
 
@@ -2719,13 +2910,27 @@ export class SyncService {
       if (reactivatesQuotaConsumer) {
         await this.quotaService.assertWithinQuota(businessId, 'contacts')
       }
+      // A contact who still owes or is owed cannot be archived (@biztrack/domain).
+      if (
+        checkContactArchive({
+          wasActive: existing.isActive,
+          isActive: nextIsActive,
+          hasOpenDebts: await this.contactHasOpenDebts(businessId, existing.id),
+        })
+      ) {
+        throw new AppBadRequestException(
+          'This contact has open balances and cannot be archived.',
+          'CONTACT_HAS_OPEN_DEBTS',
+        )
+      }
 
       await this.contactsRepo.update(operation.recordId, {
         type: payload.type ?? existing.type,
         name: normalizedName,
-        phone: this.normalizeOptionalString(payload.phone),
-        phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
-        email: this.normalizeOptionalString(payload.email),
+        nameKey: contactNameKey(normalizedName),
+        phone: contactPhone(payload.phone),
+        phoneAlt: contactPhone(payload.phoneAlt),
+        email: normalizeEmail(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
         idType: payload.idType ?? null,
@@ -2751,9 +2956,9 @@ export class SyncService {
         businessId,
         type: payload.type ?? ContactType.CUSTOMER,
         name: normalizedName,
-        phone: this.normalizeOptionalString(payload.phone),
-        phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
-        email: this.normalizeOptionalString(payload.email),
+        phone: contactPhone(payload.phone),
+        phoneAlt: contactPhone(payload.phoneAlt),
+        email: normalizeEmail(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
         idType: payload.idType ?? null,
@@ -2770,6 +2975,15 @@ export class SyncService {
     )
 
     return { status: 'applied' }
+  }
+
+  private async contactHasOpenDebts(businessId: string, contactId: string): Promise<boolean> {
+    const [row] = (await this.dataSource.query(
+      `SELECT 1 FROM debts WHERE business_id = $1 AND contact_id = $2
+          AND ${openDebtSql('status')} LIMIT 1`,
+      [businessId, contactId],
+    )) as unknown[]
+    return !!row
   }
 
   private async applyRfqOperation(
@@ -3009,23 +3223,45 @@ export class SyncService {
     if (operation.action === 'DELETE') {
       if (existing) {
         await this.openingBalancesRepo.delete(existing.id)
+        // Its mirrored debt goes with it, as on the server's own path (payments cascade).
+        await this.dataSource.getRepository(Debt).delete({
+          businessId,
+          sourceType: DebtSource.OPENING_BALANCE,
+          sourceId: existing.contactId,
+          direction: existing.direction,
+        })
       }
       return { status: 'applied' }
     }
 
     const contact = await this.contactsRepo.findOne({
       where: { id: payload.contactId, businessId },
-      select: ['id', 'businessId'],
+      select: ['id', 'businessId', 'type'],
     })
 
     if (!contact) {
       return { status: 'failed', errorMessage: 'Opening balance contact could not be resolved.' }
     }
 
-    const amount = this.normalizeMoney(payload.amount)
-    if (amount <= 0) {
-      return { status: 'failed', errorMessage: 'Opening balance amount must be greater than zero.' }
+    // Amount, date and direction: @biztrack/domain checkOpeningBalance, as REST and the till.
+    const checked = checkOpeningBalance({
+      amount: Number(payload.amount),
+      direction: payload.direction as DebtDirection,
+      contactType: contact.type as ContactType,
+      asOfDate: payload.asOfDate,
+    })
+    if (!checked.ok) {
+      return {
+        status: 'failed',
+        errorMessage: {
+          OPENING_BALANCE_AMOUNT_INVALID: 'Opening balance amount must be greater than zero.',
+          OPENING_BALANCE_DIRECTION_INVALID:
+            'This contact type cannot have an opening balance in this direction.',
+          OPENING_BALANCE_DATE_INVALID: 'Opening balance date must be in YYYY-MM-DD format.',
+        }[checked.code],
+      }
     }
+    const { amount } = checked
 
     if (existing) {
       await this.openingBalancesRepo.update(existing.id, {
@@ -3140,8 +3376,26 @@ export class SyncService {
       }
     }
 
+    // A business may not change a default unit, any more than a system one (R12).
+    if (existing && checkUnitEditable(existing)) {
+      throw new AppBadRequestException(
+        'Default units of measure cannot be changed.',
+        'UNIT_OF_MEASURE_SYSTEM_IMMUTABLE',
+      )
+    }
+
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        // Only a unit no product uses is deleted, as on the server's own path and the till.
+        const productCount = await this.dataSource.manager.count(Product, {
+          where: { businessId, unitOfMeasureId: existing.id, deletedAt: IsNull() },
+        })
+        if (checkUnitRemoval(productCount)) {
+          throw new AppBadRequestException(
+            'This unit is still used by one or more products and cannot be deleted.',
+            'UNIT_OF_MEASURE_IN_USE',
+          )
+        }
         await this.unitsRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -3153,21 +3407,38 @@ export class SyncService {
     }
 
     const payload = this.readUnitPayload(operation.payload)
-    const dto = plainToInstance(CreateUnitOfMeasureDto, {
+    const others = await this.unitsRepo.find({
+      select: { id: true, name: true },
+      where: { businessId },
+      withDeleted: true,
+    })
+    const decision = decideUnit({
       name: payload.name,
       abbreviation: payload.abbreviation,
       type: payload.type,
+      takenNames: others.filter((u) => u.id !== operation.recordId).map((u) => u.name),
     })
-    await this.ensureValidDto(dto)
+    if (!decision.ok) {
+      throw new AppBadRequestException(
+        decision.code === 'UNIT_OF_MEASURE_EXISTS'
+          ? 'The business already has a unit with this name.'
+          : 'The unit of measure is not valid.',
+        decision.code,
+      )
+    }
+    // A business's own unit is never a default one, whatever the till sent.
+    const unit = {
+      name: decision.name,
+      abbreviation: decision.abbreviation,
+      type: decision.type as UnitOfMeasureType,
+      businessId,
+      isDefault: false,
+      isActive: payload.isActive ?? true,
+    }
 
     if (existing) {
       await this.unitsRepo.update(operation.recordId, {
-        name: payload.name!.trim().toUpperCase(),
-        abbreviation: payload.abbreviation?.trim() ?? '',
-        type: payload.type! as UnitOfMeasureType,
-        businessId,
-        isDefault: Boolean(payload.isDefault),
-        isActive: payload.isActive ?? true,
+        ...unit,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -3177,12 +3448,7 @@ export class SyncService {
     await this.unitsRepo.save(
       this.unitsRepo.create({
         id: operation.recordId,
-        name: payload.name!.trim().toUpperCase(),
-        abbreviation: payload.abbreviation?.trim() ?? '',
-        businessId,
-        type: payload.type! as UnitOfMeasureType,
-        isDefault: Boolean(payload.isDefault),
-        isActive: payload.isActive ?? true,
+        ...unit,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3208,12 +3474,11 @@ export class SyncService {
     }
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
-      if (existing) {
-        await this.productsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
+      // Deleted on a till: removed exactly as the server's own delete does it, stock
+      // written off included (ruling R18).
+      if (existing && !existing.deletedAt) {
+        const ctx = await this.syncRemovalContext(businessId, operation.recordUpdatedAt)
+        await this.dataSource.transaction((manager) => removeProduct(manager, ctx, existing))
       }
 
       return { status: 'applied' }
@@ -3259,18 +3524,32 @@ export class SyncService {
       existing?.id,
       existing?.sku ?? null,
     )
-    const barcode = await this.resolveProductBarcode(businessId, payload, existing, sku)
-    // productType is authoritative; isService/trackInventory are derived from it.
-    // Fall back to the payload's/existing productType, then to a classification
-    // inferred from the legacy isService flag (older clients send no productType).
-    const productType =
-      payload.productType ??
-      existing?.productType ??
-      inferProductType(payload.isService ?? existing?.isService)
+    const barcode = await this.resolveProductBarcode(businessId, payload, existing)
+    // productType is authoritative; isService/trackInventory are derived from it. A
+    // product's type, like its serial-number setting, is fixed once it exists, as on the
+    // server's own update (R12). A new one takes the payload's type, or one inferred from
+    // the legacy isService flag (older clients send no productType).
+    const kind = productKindToStore(existing ?? null, {
+      productType: payload.productType ?? inferProductType(payload.isService),
+      isSerialized: payload.isSerialized ?? false,
+      serialType: this.normalizeOptionalString(payload.serialType),
+    })
+    const productType = kind.productType
     const { isService, trackInventory } = deriveProductTypeFlags(
       productType,
       payload.trackInventory ?? existing?.trackInventory,
     )
+    if (!existing) {
+      const problem = checkProductKind(kind)
+      if (problem) {
+        throw new AppBadRequestException(
+          problem === 'SERIALIZED_ONLY_SIMPLE'
+            ? 'Only a simple product can track serial numbers.'
+            : 'A serialized product needs a valid serial type.',
+          problem,
+        )
+      }
+    }
 
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
@@ -3312,8 +3591,8 @@ export class SyncService {
           onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
           metaDescription: this.normalizeOptionalString(payload.metaDescription),
-          isSerialized: payload.isSerialized ?? existing.isSerialized,
-          serialType: this.normalizeOptionalString(payload.serialType),
+          isSerialized: kind.isSerialized,
+          serialType: kind.serialType,
           warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
           uniqueItems: payload.uniqueItems ?? existing.uniqueItems,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -3326,7 +3605,9 @@ export class SyncService {
           where: { businessId, productId: operation.recordId },
         })
 
-        if (trackInventory && !inventoryLevel) {
+        // What the edit does to the product's own level (@biztrack/domain stockLevelOnEdit).
+        const levelChange = stockLevelOnEdit({ trackInventory, hasLevel: inventoryLevel != null })
+        if (levelChange === 'CREATE') {
           await inventoryRepo.save(
             inventoryRepo.create({
               businessId,
@@ -3335,14 +3616,14 @@ export class SyncService {
               lowStockThreshold: payload.lowStockThreshold ?? null,
             }),
           )
-        } else if (trackInventory && inventoryLevel) {
+        } else if (levelChange === 'KEEP' && inventoryLevel) {
           await inventoryRepo.update(inventoryLevel.id, {
             lowStockThreshold:
               payload.lowStockThreshold === undefined
                 ? inventoryLevel.lowStockThreshold
                 : payload.lowStockThreshold,
           })
-        } else if (!trackInventory && inventoryLevel) {
+        } else if (levelChange === 'REMOVE' && inventoryLevel) {
           await inventoryRepo.delete({ id: inventoryLevel.id })
         }
       })
@@ -3350,9 +3631,21 @@ export class SyncService {
       return { status: 'applied' }
     }
 
-    const openingStock = trackInventory
-      ? Math.max(payload.currentStock ?? payload.openingStock ?? 0, 0)
-      : 0
+    // The level a new product starts with (@biztrack/domain newProductStockLevel): a
+    // serialized product's level holds its thresholds at 0, its stock is its units.
+    const newLevel = newProductStockLevel({
+      trackInventory,
+      isSerialized: kind.isSerialized,
+      openingStock: payload.currentStock ?? payload.openingStock,
+    })
+    const openingStock = newLevel?.quantity ?? 0
+    const openingBusinessDate =
+      openingStock > 0
+        ? await this.calendar.computeForBusiness(
+            businessId,
+            this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          )
+        : null
 
     if (payload.isActive ?? true) {
       await this.quotaService.assertWithinQuota(businessId, 'products')
@@ -3390,8 +3683,8 @@ export class SyncService {
           onlineStockReserve: payload.onlineStockReserve ?? 0,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
           metaDescription: this.normalizeOptionalString(payload.metaDescription),
-          isSerialized: payload.isSerialized ?? false,
-          serialType: this.normalizeOptionalString(payload.serialType),
+          isSerialized: kind.isSerialized,
+          serialType: kind.serialType,
           warrantyMonths: payload.warrantyMonths ?? null,
           uniqueItems: payload.uniqueItems ?? false,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -3401,7 +3694,7 @@ export class SyncService {
         }),
       )
 
-      if (trackInventory) {
+      if (newLevel) {
         await manager.getRepository(InventoryLevel).save(
           manager.getRepository(InventoryLevel).create({
             businessId,
@@ -3425,6 +3718,7 @@ export class SyncService {
               referenceId: operation.recordId,
               notes: 'Opening stock set during sync',
               performedById: payload.createdById ?? null,
+              businessDate: openingBusinessDate,
             }),
           )
         }
@@ -3509,11 +3803,24 @@ export class SyncService {
       return { status: 'applied' }
     }
 
+    const variantId = payload.variantId ?? null
+    // The level this adjustment may change (@biztrack/domain); variant rows, not the flag.
+    const target = checkStockAdjustmentTarget({
+      trackInventory: product.trackInventory,
+      isSerialized: product.isSerialized,
+      hasVariants: await this.productVariantsRepo.exists({
+        where: { businessId, productId: payload.productId, deletedAt: IsNull() },
+      }),
+      variantId,
+    })
+    if (target) {
+      return { status: 'failed', errorMessage: `Stock adjustment refused: ${target}.` }
+    }
+
     return this.dataSource.transaction(async (manager) => {
       const inventoryRepo = manager.getRepository(InventoryLevel)
       const movementRepo = manager.getRepository(InventoryMovement)
 
-      const variantId = payload.variantId ?? null
       const level =
         (await inventoryRepo.findOne({
           where: { businessId, productId: payload.productId, variantId: variantId ?? IsNull() },
@@ -3529,17 +3836,24 @@ export class SyncService {
           }),
         ))
 
-      const quantityBefore = Number(level.quantity)
-      const quantityAfter = this.calculateAdjustmentQuantity(quantityBefore, payload)
-
-      if (quantityAfter < 0) {
-        return {
-          status: 'conflict',
-          resolution: 'server_wins',
-          errorMessage:
-            'Inventory quantity changed on another device. Unable to apply this adjustment.',
-        }
+      // The same decision the till made (@biztrack/domain), on the server's level.
+      const decision = decideStockAdjustment({
+        current: Number(level.quantity),
+        type: payload.type,
+        quantity: payload.quantity,
+        notes: payload.notes,
+      })
+      if (!decision.ok) {
+        return decision.code === 'INVENTORY_INSUFFICIENT_STOCK'
+          ? {
+              status: 'conflict',
+              resolution: 'server_wins',
+              errorMessage:
+                'Inventory quantity changed on another device. Unable to apply this adjustment.',
+            }
+          : { status: 'failed', errorMessage: `Stock adjustment refused: ${decision.code}.` }
       }
+      const { before: quantityBefore, after: quantityAfter } = decision
 
       await inventoryRepo.update(level.id, {
         quantity: quantityAfter,
@@ -3561,12 +3875,12 @@ export class SyncService {
           productId: payload.productId,
           variantId,
           type: MovementType.MANUAL_ADJUSTMENT,
-          quantityChange: quantityAfter - quantityBefore,
+          quantityChange: decision.change,
           quantityBefore,
           quantityAfter,
           referenceType: variantId ? 'product_variant' : 'adjustment',
           referenceId: variantId ?? payload.productId,
-          notes: payload.notes.trim(),
+          notes: decision.notes,
           performedById: null,
           businessDate,
           createdAt: movementCreatedAt,
@@ -3661,26 +3975,34 @@ export class SyncService {
         }
       }
 
-      const totalPaid = this.normalizeMoney(
-        (payload.payments ?? []).reduce(
-          (sum, payment) => sum + this.normalizeMoney(payment.amount),
-          0,
-        ),
-      )
-      const normalizedOriginalAmount = this.normalizeMoney(payload.originalAmount)
-      const isWrittenOff =
-        payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
-      const status = isWrittenOff
-        ? DebtStatus.WRITTEN_OFF
-        : totalPaid >= normalizedOriginalAmount
-          ? DebtStatus.SETTLED
-          : totalPaid > 0
-            ? DebtStatus.PARTIALLY_PAID
-            : DebtStatus.OUTSTANDING
-      const settledAt =
-        status === DebtStatus.SETTLED
-          ? (this.parseOptionalDate(payload.settledAt) ?? operation.recordUpdatedAt)
-          : null
+      // The debt and its payments as the till sent them: payments (and reversals) that come
+      // to no more than is owed, as the till's own payment check allows (@biztrack/domain).
+      const checked = checkSyncedDebt({
+        originalAmount: Number(payload.originalAmount),
+        payments: (payload.payments ?? []).map((payment) => Number(payment.amount)),
+      })
+      if (!checked.ok) {
+        return {
+          status: 'failed' as const,
+          errorMessage:
+            checked.code === 'DEBT_PAYMENTS_EXCEED_ORIGINAL'
+              ? 'The payments on this debt add up to more than is owed.'
+              : checked.code === 'DEBT_AMOUNT_INVALID'
+                ? 'The amount of this debt is not valid.'
+                : 'A payment on this debt is not a valid amount.',
+        }
+      }
+      const normalizedOriginalAmount = checked.originalAmount
+      // The server works out where the debt stands from its payments (@biztrack/domain);
+      // only "written off" is taken from the till. The first settlement date is kept.
+      const writtenOff = payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
+      const { status, settledAt } = debtAfterChange({
+        originalAmount: normalizedOriginalAmount,
+        paidAmount: checked.paidAmount,
+        status: writtenOff ? DebtStatus.WRITTEN_OFF : DebtStatus.OUTSTANDING,
+        settledAt: existing?.settledAt ?? this.parseOptionalDate(payload.settledAt),
+        at: operation.recordUpdatedAt,
+      })
       const writtenOffAt =
         status === DebtStatus.WRITTEN_OFF
           ? (this.parseOptionalDate(payload.writtenOffAt) ?? operation.recordUpdatedAt)
@@ -4070,8 +4392,7 @@ export class SyncService {
     existingSku?: string | null,
   ) {
     if (existingSku) {
-      const incomingSku = payload.sku?.trim().toUpperCase()
-      if (incomingSku && incomingSku !== existingSku) {
+      if (!checkProductSku({ existing: existingSku, incoming: payload.sku }).ok) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.product_sku_immutable'),
           'PRODUCT_SKU_IMMUTABLE',
@@ -4092,7 +4413,6 @@ export class SyncService {
     businessId: string,
     payload: ProductSyncPayload,
     existing: Product | null,
-    sku: string,
   ) {
     if (payload.barcode) {
       return this.barcodeService.validateAndNormalize(businessId, payload.barcode, existing?.id)
@@ -4106,7 +4426,7 @@ export class SyncService {
       }
     }
 
-    return this.barcodeService.generateFromSKU(sku)
+    return this.barcodeService.none()
   }
 
   private async findBusiness(businessId: string) {
@@ -4131,6 +4451,14 @@ export class SyncService {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.category_not_found'),
         'CATEGORY_NOT_FOUND',
+      )
+    }
+    // Products go only in a category with no active sub-categories, as on the server's own
+    // path and the till (R12).
+    if (!(await categoryTakesProducts(this.dataSource.manager, businessId, category.id))) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.category_not_leaf'),
+        'CATEGORY_NOT_LEAF',
       )
     }
 
@@ -5006,7 +5334,8 @@ export class SyncService {
   }
 
   private toOtherIncomeSyncRecord(record: OtherIncome): OtherIncomeSyncRecord {
-    const date = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : String(record.date)
+    const date =
+      record.date instanceof Date ? record.date.toISOString().slice(0, 10) : String(record.date)
     return {
       id: record.id,
       businessId: record.businessId,
@@ -5085,6 +5414,7 @@ export class SyncService {
       maxCartDiscountPercent: record.maxCartDiscountPercent ?? null,
       maxDiscountAmountXaf: record.maxDiscountAmountXaf ?? null,
       allowBelowCost: record.allowBelowCost ?? false,
+      limitsVersion: record.limitsVersion ?? 1,
       colour: record.colour ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
@@ -5426,18 +5756,6 @@ export class SyncService {
     return payload as ProductSerialUnitPayload
   }
 
-  /** Fallback slug from a name (the client normally sends its own). */
-  private slugify(value: string): string {
-    return value
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 140)
-  }
-
   /** Coerce a synced display type to a valid enum value (defends the DB CHECK constraint). */
   private normalizeDisplayType(value: string | null | undefined): AttributeDisplayType {
     const upper = (value ?? '').toUpperCase()
@@ -5662,13 +5980,24 @@ export class SyncService {
     return this.storage.keyFromUrl(url) ? url : null
   }
 
+  /** Who and when for a removal that arrived by sync: no user, booked on the till's day. */
+  private async syncRemovalContext(businessId: string, at: Date) {
+    return {
+      businessId,
+      actorId: null,
+      businessDate: await this.calendar.computeForBusiness(businessId, at),
+      at,
+    }
+  }
+
   private normalizeMoney(value: number | string | null | undefined) {
     const numeric = Number(value ?? 0)
     if (!Number.isFinite(numeric)) {
       return 0
     }
 
-    return Math.round((numeric + Number.EPSILON) * 100) / 100
+    // Money a till sends is taken in whole francs, as every rule in @biztrack/domain works.
+    return toWholeXaf(numeric)
   }
 
   private async resolveContactCreatedById(businessId: string, createdById?: string | null) {
@@ -5702,21 +6031,6 @@ export class SyncService {
 
     const parsed = new Date(value)
     return Number.isNaN(parsed.getTime()) ? null : parsed
-  }
-
-  private calculateAdjustmentQuantity(
-    currentQuantity: number,
-    payload: InventoryAdjustmentSyncPayload,
-  ) {
-    if (payload.type === StockAdjustmentType.ADD) {
-      return currentQuantity + payload.quantity
-    }
-
-    if (payload.type === StockAdjustmentType.REMOVE) {
-      return currentQuantity - payload.quantity
-    }
-
-    return payload.quantity
   }
 
   private async ensureValidDto(dto: object) {

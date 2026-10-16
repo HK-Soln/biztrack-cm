@@ -5,6 +5,7 @@ import {
   type JwtPayload,
   type OtherIncomeListResult,
   type OtherIncomeView,
+  type OtherIncomeSummaryCard,
 } from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
@@ -38,6 +39,15 @@ export class IncomeController {
     @Query() query: ListOtherIncomeDto,
   ): Promise<OtherIncomeListResult> {
     return this.service.list(user.businessId as string, query)
+  }
+
+  @Get('summary')
+  @ApiOperation({ summary: 'Other income over a period: totals, change and share by category' })
+  summary(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListOtherIncomeDto,
+  ): Promise<OtherIncomeSummaryCard> {
+    return this.service.getSummaryCard(user.businessId as string, query)
   }
 
   @Patch(':id')

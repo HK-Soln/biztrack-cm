@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { loadNetSalesProfit } from '@/modules/sales/services/sales-profit.query'
 import { InjectRepository } from '@nestjs/typeorm'
 import type {
   ExpenseCategoryRangeItem,
@@ -8,6 +9,7 @@ import type {
   JwtPayload,
 } from '@biztrack/types'
 import { BusinessMemberRole, ExpenseStatus, PaymentMethod } from '@biztrack/types'
+import { comparisonPeriod, incomeStatement, summarizeAmounts, toWholeXaf } from '@biztrack/domain'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { I18nService } from 'nestjs-i18n'
 import { IsNull, Repository } from 'typeorm'
@@ -92,7 +94,7 @@ export class ExpensesService {
           categoryId: category.id,
           recordedById: user.sub,
           description: dto.description.trim(),
-          amount: this.roundMoney(dto.amount),
+          amount: toWholeXaf(dto.amount),
           currency: 'XAF',
           // Pending expenses carry no payment method until settled.
           paymentMethod:
@@ -115,7 +117,9 @@ export class ExpensesService {
       // Learn: a recurring expense flags its category, so next time that category is picked the
       // recurring toggle defaults on (best-effort — never fails the create).
       if (dto.isRecurring && category.businessId) {
-        await this.categoriesService.markCategoryRecurring(category.id, businessId).catch(() => undefined)
+        await this.categoriesService
+          .markCategoryRecurring(category.id, businessId)
+          .catch(() => undefined)
       }
 
       await this.rebuildExpenseMonth(businessId, expenseDate)
@@ -135,7 +139,7 @@ export class ExpensesService {
         ? (await this.categoriesService.resolveAccessibleCategory(dto.categoryId, businessId)).id
         : existing.categoryId
 
-      const nextAmount = dto.amount === undefined ? existing.amount : this.roundMoney(dto.amount)
+      const nextAmount = dto.amount === undefined ? existing.amount : toWholeXaf(dto.amount)
       const nextRecurring = dto.isRecurring ?? existing.isRecurring
       const nextStatus = dto.status ?? existing.status
 
@@ -259,7 +263,7 @@ export class ExpensesService {
         page,
         limit,
         totalPages: Math.ceil(total / limit),
-        totalAmount: this.roundMoney(Number(totalRow?.totalAmount ?? 0)),
+        totalAmount: toWholeXaf(Number(totalRow?.totalAmount ?? 0)),
       }
     } catch (error) {
       return this.handleServiceError('findAll', error, { businessId })
@@ -333,18 +337,15 @@ export class ExpensesService {
       // (redated forward for late arrivals into closed periods), computed from source exactly like
       // SalesService.getGrossProfit. The daily_sale_summaries rollup keys off sale_date — it is the
       // OPERATIONAL grain (daily summary + cash-close reconciliation) and must not be re-keyed.
-      const [sales] = (await this.dailySaleSummariesRepo.manager.query(
-        `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
-                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
-         FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE s.business_id = $1
-           AND COALESCE(s.posting_date, s.business_date, s.sale_date) >= $2
-           AND COALESCE(s.posting_date, s.business_date, s.sale_date) < $3
-           AND s.status = 'COMPLETED' AND s.deleted_at IS NULL AND si.deleted_at IS NULL`,
-        [businessId, startDate, endDate],
-      )) as Array<{ revenue: string | number | null; cogs: string | number | null }>
-      const revenue = this.roundMoney(Number(sales?.revenue ?? 0))
-      const costOfGoods = this.roundMoney(Number(sales?.cogs ?? 0))
+      // Same loader as SalesService.getGrossProfit (ruling R4: net of the period's refunds),
+      // so the P&L summary and the Income Statement cannot disagree.
+      const lastDay = new Date(endExclusive.getTime() - 86_400_000).toISOString().slice(0, 10)
+      const sales = await loadNetSalesProfit(this.dailySaleSummariesRepo.manager, businessId, {
+        dateFrom: startDate,
+        dateTo: lastDay,
+      })
+      const revenue = sales.revenue
+      const costOfGoods = sales.cogs
 
       // Expenses on the same financial (posting_date) grain, grouped by category slug.
       const expenseRows = await this.expensesRepo
@@ -369,11 +370,11 @@ export class ExpensesService {
       const expenseBreakdown: Record<string, number> = {}
       let totalExpenses = 0
       for (const row of expenseRows) {
-        const amount = this.roundMoney(Number(row.amount ?? 0))
+        const amount = toWholeXaf(Number(row.amount ?? 0))
         expenseBreakdown[row.slug] = amount
         totalExpenses += amount
       }
-      totalExpenses = this.roundMoney(totalExpenses)
+      totalExpenses = toWholeXaf(totalExpenses)
 
       // Spec 10 ① — non-trading ("other") income over the same posting_date window, read from the
       // Other Income ledger (general payment-link settlements, deposit-cancellation charges [migrated
@@ -385,10 +386,14 @@ export class ExpensesService {
            AND COALESCE(posting_date, business_date, date) < $3`,
         [businessId, startDate, endDate],
       )) as Array<{ total: string | number | null }>
-      const otherIncome = this.roundMoney(Number(oi?.total ?? 0))
-
-      const grossProfit = this.roundMoney(revenue - costOfGoods)
-      const netProfit = this.roundMoney(grossProfit + otherIncome - totalExpenses)
+      // Gross and net profit are @biztrack/domain's, the rule the report builder uses too.
+      const statement = incomeStatement({
+        revenue,
+        costOfGoods,
+        otherIncome: Number(oi?.total ?? 0),
+        totalExpenses,
+      })
+      const { grossProfit, otherIncome, netProfit } = statement
 
       return {
         year,
@@ -396,12 +401,12 @@ export class ExpensesService {
         revenue,
         costOfGoods,
         grossProfit,
-        grossMarginPercent: revenue > 0 ? this.roundPercentage((grossProfit / revenue) * 100) : 0,
+        grossMarginPercent: statement.grossMarginPercent,
         otherIncome,
         totalExpenses,
         expenseBreakdown,
         netProfit,
-        netMarginPercent: revenue > 0 ? this.roundPercentage((netProfit / revenue) * 100) : 0,
+        netMarginPercent: statement.netMarginPercent,
         isProfitable: netProfit > 0,
       }
     } catch (error) {
@@ -461,47 +466,40 @@ export class ExpensesService {
         currency: string | null
       }>
 
-      const total = this.roundMoney(Number(tot?.total ?? 0))
-      const byCategory = cats.map((c) => {
-        const amount = this.roundMoney(Number(c.amount ?? 0))
-        return {
-          categoryId: c.categoryId,
-          name: c.name ?? '',
-          color: c.color ?? '#9ca3af',
-          amount,
-          percentage: total > 0 ? this.roundPercentage((amount / total) * 100) : 0,
-        }
-      })
-
       // Previous-period total (same span immediately before dateFrom) for the change %.
+      const period =
+        query.dateFrom && query.dateTo ? comparisonPeriod(query.dateFrom, query.dateTo) : null
       let previousTotal = 0
-      let days = 30
-      if (query.dateFrom && query.dateTo) {
-        const from = new Date(query.dateFrom)
-        const to = new Date(query.dateTo)
-        const spanMs = to.getTime() - from.getTime()
-        days = Math.max(1, Math.round(spanMs / 86_400_000) + 1)
-        const prevTo = new Date(from.getTime() - 86_400_000)
-        const prevFrom = new Date(prevTo.getTime() - spanMs)
-        const iso = (d: Date) => d.toISOString().slice(0, 10)
+      if (period) {
         const [prev] = (await mgr.query(
           `SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE business_id = $1 AND deleted_at IS NULL AND COALESCE(posting_date, business_date, date) >= $2 AND COALESCE(posting_date, business_date, date) <= $3`,
-          [businessId, iso(prevFrom), iso(prevTo)],
+          [businessId, period.previousFrom, period.previousTo],
         )) as Array<{ t: string }>
-        previousTotal = this.roundMoney(Number(prev?.t ?? 0))
+        previousTotal = Number(prev?.t ?? 0)
       }
+      // Totals, change, average and shares are @biztrack/domain's, as on the till.
+      const summary = summarizeAmounts({
+        categories: cats.map((c) => ({ key: c, amount: Number(c.amount ?? 0) })),
+        total: Number(tot?.total ?? 0),
+        previousTotal,
+        days: period?.days,
+      })
+      const byCategory = summary.categories.map(({ key, amount, percentage }) => ({
+        categoryId: key.categoryId,
+        name: key.name ?? '',
+        color: key.color ?? '#9ca3af',
+        amount,
+        percentage,
+      }))
 
       return {
-        total,
+        total: summary.total,
         count: Number(tot?.n ?? 0),
-        previousTotal,
-        changePct:
-          previousTotal > 0
-            ? this.roundPercentage(((total - previousTotal) / previousTotal) * 100)
-            : 0,
-        avgPerDay: this.roundMoney(total / days),
+        previousTotal: summary.previousTotal,
+        changePct: summary.changePct,
+        avgPerDay: summary.avgPerDay,
         pendingCount: Number(pending?.n ?? 0),
-        pendingAmount: this.roundMoney(Number(pending?.amt ?? 0)),
+        pendingAmount: toWholeXaf(Number(pending?.amt ?? 0)),
         largest: byCategory[0] ?? null,
         byCategory,
         currency: biz?.currency ?? 'XAF',
@@ -549,7 +547,7 @@ export class ExpensesService {
           year: y,
           month: m,
           label: `${MONTHS[m - 1] ?? ''} ${y}`,
-          total: this.roundMoney(Number(r.total ?? 0)),
+          total: toWholeXaf(Number(r.total ?? 0)),
         }
       })
     } catch (error) {
@@ -662,7 +660,7 @@ export class ExpensesService {
           categoryId: payload.categoryId,
           recordedById,
           description: payload.description.trim(),
-          amount: this.roundMoney(payload.amount),
+          amount: toWholeXaf(payload.amount),
           currency: payload.currency?.trim() || 'XAF',
           paymentMethod:
             payload.status === ExpenseStatus.PENDING || !payload.paymentMethod
@@ -853,14 +851,6 @@ export class ExpensesService {
       'Expense recorder is required.',
       'EXPENSE_RECORDED_BY_REQUIRED',
     )
-  }
-
-  private roundMoney(value: number) {
-    return Math.round(value * 100) / 100
-  }
-
-  private roundPercentage(value: number) {
-    return Math.round(value * 10) / 10
   }
 
   private async handleServiceError(

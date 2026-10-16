@@ -1,3 +1,10 @@
+import {
+  checkCategoryRemoval,
+  placeCategory,
+  slugify,
+  type CategoryPlacementRejection,
+  uniqueSlug,
+} from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -30,21 +37,22 @@ interface CategoryRow {
 const SELECT_COLS =
   'id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online'
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // strip combining accents
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 100)
-}
-
 /**
  * Offline-first product categories. Reads come from local SQLite (synced by the sync
  * engine); writes go to local SQLite + the sync_outbox in one step, then nudge a sync.
  * The renderer never sees the businessId — it's resolved from the active session here.
  */
+const CATEGORY_PLACEMENT_MESSAGES: Record<CategoryPlacementRejection, string> = {
+  CATEGORY_PARENT_NOT_FOUND: 'Selected parent category does not exist.',
+  CATEGORY_PARENT_CYCLE: 'A category cannot be its own parent.',
+  MAX_DEPTH_EXCEEDED:
+    'Maximum category depth (3 levels) reached — this category cannot be a parent.',
+  CATEGORY_REPARENT_HAS_CHILDREN: 'A category with sub-categories cannot be moved.',
+  CATEGORY_PARENT_HAS_PRODUCTS: 'This category already has products and cannot become a parent.',
+  CATEGORY_PARENT_HAS_VARIANT_OPTIONS:
+    'This category has variant options and cannot become a parent.',
+}
+
 export class CategoriesService {
   constructor(
     private readonly db: DatabaseService,
@@ -160,10 +168,9 @@ export class CategoriesService {
 
   create(input: CategoryInput): LocalCategory {
     const businessId = this.requireBusinessId()
-    if (input.parentId) this.assertParentEligible(input.parentId, businessId, null)
+    const { depth } = this.place(businessId, null, input.parentId ?? null)
     const id = randomUUID()
     const now = new Date().toISOString()
-    const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
       `INSERT INTO product_categories
         (id, business_id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
@@ -172,7 +179,7 @@ export class CategoriesService {
         id,
         businessId,
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name),
         input.description?.trim() || null,
         input.color ?? null,
         input.icon ?? null,
@@ -202,16 +209,15 @@ export class CategoriesService {
 
   update(id: string, input: CategoryInput): LocalCategory {
     const businessId = this.requireBusinessId()
-    if (input.parentId) this.assertParentEligible(input.parentId, businessId, id)
+    const { depth } = this.place(businessId, id, input.parentId ?? null)
     const now = new Date().toISOString()
-    const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
       `UPDATE product_categories
        SET name = ?, slug = ?, description = ?, color = ?, icon = ?, image_url = ?, sort_order = ?, default_unit_of_measure_id = ?, parent_id = ?, depth = ?, is_active = ?, show_online = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name, id),
         input.description?.trim() || null,
         input.color ?? null,
         input.icon ?? null,
@@ -244,20 +250,22 @@ export class CategoriesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOne(id)
-    const inUse = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM products WHERE category_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
-      [id, businessId],
-    )
-    if (inUse) {
-      throw new Error('This category is still used by one or more products and cannot be deleted.')
-    }
-    const hasChildren = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM product_categories WHERE parent_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
-      [id, businessId],
-    )
-    if (hasChildren) {
+    // A category is deleted only once it is empty (@biztrack/domain), as on the server.
+    const problem = checkCategoryRemoval({
+      hasChildren: !!this.db.get<{ n: number }>(
+        `SELECT 1 AS n FROM product_categories WHERE parent_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+        [id, businessId],
+      ),
+      productCount:
+        this.db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM products WHERE category_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )?.n ?? 0,
+    })
+    if (problem === 'CATEGORY_HAS_CHILDREN')
       throw new Error('This category has sub-categories and cannot be deleted.')
-    }
+    if (problem === 'CATEGORY_HAS_PRODUCTS')
+      throw new Error('This category is still used by one or more products and cannot be deleted.')
     this.db.run(
       `UPDATE product_categories SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
@@ -274,6 +282,23 @@ export class CategoriesService {
   }
 
   // ---- internals -----------------------------------------------------------
+
+  /**
+   * The slug the server would give this name (@biztrack/domain uniqueSlug, R12): numbered
+   * from -2 when another category of the business, deleted ones included, already has it.
+   */
+  private uniqueSlugFor(businessId: string, name: string, selfId?: string): string {
+    const base = slugify(name) || 'item'
+    const taken = this.db.query<{ slug: string }>(
+      `SELECT slug FROM product_categories
+        WHERE business_id = ? AND id <> ? AND slug IS NOT NULL AND (slug = ? OR slug LIKE ?)`,
+      [businessId, selfId ?? '', base, `${base}-%`],
+    )
+    return uniqueSlug(
+      name,
+      taken.map((r) => r.slug),
+    )
+  }
 
   private getOne(id: string): LocalCategory | null {
     const row = this.db.get<CategoryRow>(
@@ -343,37 +368,35 @@ export class CategoriesService {
     return out
   }
 
-  /** Throw a descriptive error if `parentId` may not serve as the parent of `selfId`. */
-  private assertParentEligible(parentId: string, businessId: string, selfId: string | null): void {
+  /**
+   * Where a category goes: at most three levels deep, never under one that holds products or
+   * variant options, and only a category with no sub-categories may move. The rule is
+   * @biztrack/domain's placeCategory, the one the server applies.
+   */
+  private place(
+    businessId: string,
+    selfId: string | null,
+    nextParentId: string | null,
+  ): { parentId: string | null; depth: number } {
     const rows = this.allRows(businessId)
-    const parent = rows.find((r) => r.id === parentId)
-    if (!parent) throw new Error('Selected parent category does not exist.')
-    if (parent.depth >= 3) {
-      throw new Error(
-        'Maximum category depth (3 levels) reached — this category cannot be a parent.',
-      )
-    }
-    if (selfId) {
-      if (parentId === selfId) throw new Error('A category cannot be its own parent.')
-      if (collectDescendants(rows, selfId).has(parentId)) {
-        throw new Error('Cannot move a category under one of its own sub-categories.')
-      }
-    }
-    if (this.categoryIdsWithProducts(businessId).has(parentId)) {
-      throw new Error('This category already has products and cannot become a parent.')
-    }
-    if (this.categoryIdsWithVariantOptions(businessId).has(parentId)) {
-      throw new Error('This category has variant options and cannot become a parent.')
-    }
-  }
-
-  private depthFor(parentId: string | null): number {
-    if (!parentId) return 1
-    const parent = this.db.get<{ depth: number }>(
-      'SELECT depth FROM product_categories WHERE id = ?',
-      [parentId],
-    )
-    return (parent?.depth ?? 0) + 1
+    const self = selfId ? rows.find((r) => r.id === selfId) : undefined
+    const parent = nextParentId ? rows.find((r) => r.id === nextParentId) : undefined
+    const result = placeCategory({
+      selfId,
+      currentParentId: self?.parent_id ?? null,
+      nextParentId,
+      hasChildren: selfId ? rows.some((r) => r.parent_id === selfId) : false,
+      parent: parent
+        ? {
+            id: parent.id,
+            depth: parent.depth,
+            hasProducts: this.categoryIdsWithProducts(businessId).has(parent.id),
+            hasVariantOptions: this.categoryIdsWithVariantOptions(businessId).has(parent.id),
+          }
+        : null,
+    })
+    if (!result.ok) throw new Error(CATEGORY_PLACEMENT_MESSAGES[result.code])
+    return { parentId: result.parentId, depth: self && !result.moved ? self.depth : result.depth }
   }
 
   private requireBusinessId(): string {

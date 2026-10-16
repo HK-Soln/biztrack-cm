@@ -1,6 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { ContactType, IdDocumentType, type CreateContactRequest } from '@biztrack/types'
-import { ArrayMaxSize, IsArray, IsEmail, IsEnum, IsISO8601, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEmail,
+  IsEnum,
+  IsIn,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator'
 
 export class CreateContactDto implements CreateContactRequest {
   @ApiProperty({ enum: ContactType, example: ContactType.CUSTOMER })
@@ -13,11 +24,16 @@ export class CreateContactDto implements CreateContactRequest {
   @MaxLength(200)
   name!: string
 
-  @ApiProperty({ example: '+237699000111' })
+  @ApiProperty({ required: false, example: '+237699000111' })
+  @IsOptional()
   @IsString()
-  @MinLength(5)
   @MaxLength(30)
-  phone!: string
+  phone?: string
+
+  @ApiProperty({ required: false, enum: ['MERGE', 'CREATE'] })
+  @IsOptional()
+  @IsIn(['MERGE', 'CREATE'])
+  onDuplicate?: 'MERGE' | 'CREATE'
 
   @ApiProperty({ required: false, example: '+237677000111' })
   @IsOptional()

@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { checkAttributeOptionRemoval, planAttributeGroupRemoval } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   AttributeDisplayType,
@@ -227,31 +228,46 @@ export class AttributesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getGroup(id)
-    const variantUse = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM product_variant_options pvo
-         JOIN product_variants pv ON pv.id = pvo.variant_id
-         JOIN products p ON p.id = pv.product_id
-       WHERE pvo.attribute_group_id = ? AND pvo.business_id = ?
-         AND pvo.is_deleted = 0 AND pv.is_deleted = 0 AND p.is_deleted = 0
-       LIMIT 1`,
-      [id, businessId],
-    )
-    if (variantUse) {
+    // What goes is @biztrack/domain's planAttributeGroupRemoval, as on the server, which
+    // saves the same plan when the delete syncs.
+    const plan = planAttributeGroupRemoval({
+      groupId: id,
+      variantUses: this.variantUses('attribute_group_id', id, businessId),
+      categoryLinks:
+        this.db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM category_attribute_groups WHERE attribute_group_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )?.n ?? 0,
+      optionIds: this.db
+        .query<{
+          id: string
+        }>(
+          `SELECT id FROM attribute_options WHERE group_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )
+        .map((r) => r.id),
+    })
+    if (!plan.ok) {
       throw new Error(
-        'This attribute is still used by one or more product variants and cannot be deleted.',
+        plan.cause === 'CATEGORIES'
+          ? 'This attribute is linked to one or more categories and cannot be deleted.'
+          : 'This attribute is still used by one or more product variants and cannot be deleted.',
       )
     }
-    const linked = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM category_attribute_groups WHERE attribute_group_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
-      [id, businessId],
-    )
-    if (linked) {
-      throw new Error('This attribute is linked to one or more categories and cannot be deleted.')
-    }
-    this.db.run(
-      `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
-      [now, id, businessId],
-    )
+    this.db.transaction(() => {
+      for (const groupId of plan.groupIds) {
+        this.db.run(
+          `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, groupId, businessId],
+        )
+      }
+      for (const optionId of plan.optionIds) {
+        this.db.run(
+          `UPDATE attribute_options SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, optionId, businessId],
+        )
+      }
+    })
     this.enqueue('attributeGroups', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
     this.audit?.log({
@@ -355,16 +371,9 @@ export class AttributesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOption(optionId)
-    const inUse = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM product_variant_options pvo
-         JOIN product_variants pv ON pv.id = pvo.variant_id
-         JOIN products p ON p.id = pv.product_id
-       WHERE pvo.attribute_option_id = ? AND pvo.business_id = ?
-         AND pvo.is_deleted = 0 AND pv.is_deleted = 0 AND p.is_deleted = 0
-       LIMIT 1`,
-      [optionId, businessId],
-    )
-    if (inUse) {
+    if (
+      checkAttributeOptionRemoval(this.variantUses('attribute_option_id', optionId, businessId))
+    ) {
       throw new Error(
         'This option is still used by one or more product variants and cannot be deleted.',
       )
@@ -414,6 +423,24 @@ export class AttributesService {
         } satisfies LocalCategoryAttributeGroup
       })
       .filter((x): x is LocalCategoryAttributeGroup => x !== null)
+  }
+
+  /** Live product variants that use an attribute or one of its options. */
+  private variantUses(
+    column: 'attribute_group_id' | 'attribute_option_id',
+    id: string,
+    businessId: string,
+  ): number {
+    return (
+      this.db.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM product_variant_options pvo
+           JOIN product_variants pv ON pv.id = pvo.variant_id
+           JOIN products p ON p.id = pv.product_id
+         WHERE pvo.${column} = ? AND pvo.business_id = ?
+           AND pvo.is_deleted = 0 AND pv.is_deleted = 0 AND p.is_deleted = 0`,
+        [id, businessId],
+      )?.n ?? 0
+    )
   }
 
   /** Replace a category's attachments with `links`: upsert desired, soft-delete removed. */

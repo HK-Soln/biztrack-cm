@@ -1,12 +1,25 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import {
-  REORDER_WINDOW_DAYS,
+  checkRestockCredit,
+  checkStockAdjustmentTarget,
+  classifyRestockLine,
   computeReorderVelocity,
   computeStockoutMs,
+  deadStock,
+  decideStockAdjustment,
+  inventoryTurnover,
+  REORDER_WINDOW_DAYS,
+  roundReportAmount,
+  settleRestock,
+  suggestedReorderQuantity,
+  supplierPriceTrend,
+  toWholeXaf,
+  type StockAdjustmentRejection,
+  type StockAdjustmentTargetRejection,
   type StockPoint,
   type VelocityResult,
-} from '@biztrack/utils'
+} from '@biztrack/domain'
 import type {
   AdjustStockInput,
   DeadStockRow,
@@ -25,7 +38,14 @@ import type {
   ThresholdInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
-import { COST_EXPR, STOCK_EXPR, effectiveStock, recordStockMovement } from './stock-ledger'
+import {
+  COST_EXPR,
+  STOCK_EXPR,
+  STOCK_STATUS_EXPR,
+  effectiveStock,
+  recordStockMovement,
+  stockStatusWhere,
+} from './stock-ledger'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 import type { ProductsService } from './products.service'
@@ -70,6 +90,7 @@ interface InventoryRow {
   low_stock_threshold: number | null
   reorder_point: number | null
   effective_stock: number | null
+  stock_status: 'OUT' | 'LOW' | 'IN'
   category_name: string | null
   unit_abbr: string | null
   last_restock_at: string | null
@@ -80,8 +101,24 @@ const INV_FROM = `products p
    LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id
    LEFT JOIN inventory_levels il ON il.product_id = p.id AND il.variant_id IS NULL`
 const INV_COLS = `p.id, p.name, p.sku, p.image_url, ${COST_EXPR} AS cost_price, p.currency, p.low_stock_threshold, p.reorder_point,
-   ${STOCK_EXPR} AS effective_stock, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
+   ${STOCK_EXPR} AS effective_stock, ${STOCK_STATUS_EXPR} AS stock_status, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
 const INV_THRESHOLD = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
+
+/** The till's wording for a refused adjustment (@biztrack/domain codes). */
+const STOCK_ADJUSTMENT_MESSAGES: Record<
+  StockAdjustmentRejection | StockAdjustmentTargetRejection,
+  string
+> = {
+  STOCK_QUANTITY_INVALID: 'Quantity is invalid.',
+  STOCK_QUANTITY_NOT_POSITIVE: 'Quantity must be greater than 0.',
+  STOCK_QUANTITY_NEGATIVE: 'Quantity cannot be negative.',
+  INVENTORY_INSUFFICIENT_STOCK: 'Not enough stock for this adjustment.',
+  STOCK_REASON_REQUIRED: 'A reason (at least 3 characters) is required.',
+  STOCK_NOT_TRACKED: 'This product does not track stock.',
+  STOCK_SERIALIZED: 'Serialized stock is changed by adding or removing serial units.',
+  STOCK_VARIANT_REQUIRED: 'Choose the variant whose stock to adjust.',
+  STOCK_VARIANT_NOT_EXPECTED: 'This product has no variants.',
+}
 
 /**
  * Offline-first inventory operations over the shared stock-ledger. Adjust writes a
@@ -113,11 +150,7 @@ export class InventoryService {
       params.push(query.categoryId)
     }
     if (query.stockStatus && query.stockStatus !== 'all') {
-      if (query.stockStatus === 'out') where += ` AND ${STOCK_EXPR} <= 0`
-      else if (query.stockStatus === 'low')
-        where += ` AND ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}`
-      else if (query.stockStatus === 'in')
-        where += ` AND ${STOCK_EXPR} > 0 AND (${INV_THRESHOLD} = 0 OR ${STOCK_EXPR} > ${INV_THRESHOLD})`
+      where += ` AND ${stockStatusWhere(query.stockStatus)}`
     }
 
     const { rows, ...meta } = paginateRows<InventoryRow>(
@@ -152,12 +185,18 @@ export class InventoryService {
          COUNT(*) AS trackedSkus,
          COALESCE(SUM(${STOCK_EXPR}), 0) AS unitsOnHand,
          COALESCE(SUM(COALESCE(${COST_EXPR}, 0) * ${STOCK_EXPR}), 0) AS stockValueCost,
-         COALESCE(SUM(CASE WHEN ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD} THEN 1 ELSE 0 END), 0) AS lowStock,
-         COALESCE(SUM(CASE WHEN ${STOCK_EXPR} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+         COALESCE(SUM(CASE WHEN ${STOCK_STATUS_EXPR} = 'LOW' THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN ${STOCK_STATUS_EXPR} = 'OUT' THEN 1 ELSE 0 END), 0) AS outOfStock
        FROM products p WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1`,
       [businessId],
     )
-    return row ?? empty
+    if (!row) return empty
+    // Two decimals, as the server returns them (@biztrack/domain roundReportAmount).
+    return {
+      ...row,
+      unitsOnHand: roundReportAmount(row.unitsOnHand),
+      stockValueCost: roundReportAmount(row.stockValueCost),
+    }
   }
 
   /** Products at/below their reorder threshold, with a suggested restock qty.
@@ -170,12 +209,9 @@ export class InventoryService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const hasVariants = `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)`
-    // A single variant is low when it's out of stock, or at/below its own threshold (when set).
-    const variantLow = `pv.stock_quantity <= 0 OR (COALESCE(pv.low_stock_threshold, 0) > 0 AND pv.stock_quantity <= COALESCE(pv.low_stock_threshold, 0))`
-    const anyVariantLow = `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0 AND (${variantLow}))`
     // Displayed reorder point: sum of the variants' thresholds for variant products, else the product-level threshold.
     const targetExpr = `CASE WHEN ${hasVariants}
-        THEN (SELECT COALESCE(SUM(COALESCE(pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+        THEN (SELECT COALESCE(SUM(COALESCE(pv.reorder_point, pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
         ELSE ${INV_THRESHOLD} END`
     // Last supplier who restocked this product (grouping key for À-commander, BIZ-4.5).
     const lastSupplier = (col: string) =>
@@ -199,11 +235,8 @@ export class InventoryService {
               p.created_at, (${hasVariants}) AS has_variants,
               ${lastSupplier('supplier_id')} AS supplier_id, ${lastSupplier('supplier_name')} AS supplier_name
        FROM products p
-       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1
-         AND (
-           (${hasVariants} AND ${anyVariantLow})
-           OR (NOT ${hasVariants} AND (${STOCK_EXPR} <= 0 OR (${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD})))
-         )
+       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.is_active = 1 AND p.track_inventory = 1
+         AND ${STOCK_STATUS_EXPR} <> 'IN'
        ORDER BY ${STOCK_EXPR} ASC`,
       [businessId],
     )
@@ -230,9 +263,8 @@ export class InventoryService {
     return rows.map((r) => {
       const stock = Math.max(0, r.stock ?? 0)
       const target = r.target ?? 0
-      // Restock to a par level of 2× the reorder point so the order actually clears
-      // the alert (restocking to exactly the reorder point leaves it still flagged).
-      const suggestedQty = target > 0 ? Math.max(target * 2 - stock, 1) : 1
+      // How much to order (@biztrack/domain suggestedReorderQuantity), as the server.
+      const suggestedQty = suggestedReorderQuantity({ stock, target })
       const v = velocities.get(r.id)
       return {
         productId: r.id,
@@ -257,7 +289,7 @@ export class InventoryService {
   /** Trailing-window sales velocity + days-of-cover per product (BIZ-4.6), keyed by
    * productId. Excludes stock-out days (reconstructed from the movement ledger's
    * `quantity_after`) and returns null velocity/cover for products with too little
-   * history/sales to trust — the shared @biztrack/utils calculator decides. */
+   * history/sales to trust — the shared @biztrack/domain calculator decides. */
   private computeVelocities(
     businessId: string,
     items: { id: string; stock: number; createdAt: string }[],
@@ -342,37 +374,24 @@ export class InventoryService {
   adjust(productId: string, input: AdjustStockInput): void {
     const businessId = this.requireBusinessId()
     const meta = this.requireProduct(productId, businessId)
-    if (!meta.trackInventory) throw new Error('This product does not track stock.')
-
-    const notes = input.notes.trim()
-    if (notes.length < 3) throw new Error('A reason (at least 3 characters) is required.')
-    if (!Number.isFinite(input.quantity)) throw new Error('Quantity is invalid.')
-    if ((input.type === 'ADD' || input.type === 'REMOVE') && input.quantity <= 0)
-      throw new Error('Quantity must be greater than 0.')
-    if (input.type === 'SET' && input.quantity < 0) throw new Error('Quantity cannot be negative.')
-
     const variantId = input.variantId ?? null
+    // Which level this may change, as the server decides it (@biztrack/domain).
+    const target = checkStockAdjustmentTarget({
+      trackInventory: meta.trackInventory,
+      isSerialized: meta.isSerialized,
+      hasVariants: meta.hasVariants,
+      variantId,
+    })
+    if (target) throw new Error(STOCK_ADJUSTMENT_MESSAGES[target])
     if (variantId) {
-      this.adjustVariant(businessId, productId, meta, variantId, input, notes)
+      this.adjustVariant(businessId, productId, meta, variantId, input)
       return
     }
-    if (meta.isSerialized || meta.hasVariants) {
-      throw new Error(
-        'Adjust applies to direct products only; manage variant/serial stock from their panels.',
-      )
-    }
 
-    const current = meta.stock
-    const next =
-      input.type === 'ADD'
-        ? current + input.quantity
-        : input.type === 'REMOVE'
-          ? current - input.quantity
-          : input.quantity
-    if (next < 0) throw new Error('Not enough stock for this adjustment.')
-
-    const change = next - current
-    if (change === 0) return // no-op (e.g. SET to the current value)
+    const decision = decideStockAdjustment({ current: meta.stock, ...input })
+    if (!decision.ok) throw new Error(STOCK_ADJUSTMENT_MESSAGES[decision.code])
+    const { before: current, after: next, change, notes } = decision
+    if (change === 0) return // nothing changes (a SET to the current level)
 
     const now = new Date().toISOString()
     this.db.run(
@@ -419,28 +438,20 @@ export class InventoryService {
     meta: ProductMeta,
     variantId: string,
     input: AdjustStockInput,
-    notes: string,
   ): void {
-    if (meta.isSerialized) {
-      throw new Error('Serialized stock is changed by adding or removing serial units.')
-    }
     const variant = this.db.get<{ id: string; name: string; stock_quantity: number }>(
       `SELECT id, name, stock_quantity FROM product_variants WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
       [variantId, productId, businessId],
     )
     if (!variant) throw new Error('Variant not found.')
 
-    const current = Number(variant.stock_quantity ?? 0)
-    const next =
-      input.type === 'ADD'
-        ? current + input.quantity
-        : input.type === 'REMOVE'
-          ? current - input.quantity
-          : input.quantity
-    if (next < 0) throw new Error('Not enough stock for this adjustment.')
-
-    const change = next - current
-    if (change === 0) return // no-op
+    const decision = decideStockAdjustment({
+      current: Number(variant.stock_quantity ?? 0),
+      ...input,
+    })
+    if (!decision.ok) throw new Error(STOCK_ADJUSTMENT_MESSAGES[decision.code])
+    const { before: current, after: next, change, notes } = decision
+    if (change === 0) return // nothing changes (a SET to the current level)
 
     const now = new Date().toISOString()
     this.db.run(
@@ -526,15 +537,31 @@ export class InventoryService {
     // Validate + classify everything before writing.
     const lines: Line[] = input.items.map((item) => {
       const meta = this.requireProduct(item.productId, businessId)
-      if (!meta.trackInventory) throw new Error(`“${meta.name}” does not track stock.`)
+      // Where the line's stock goes (@biztrack/domain classifyRestockLine, as the server).
+      const line = classifyRestockLine({
+        trackInventory: meta.trackInventory,
+        isSerialized: meta.isSerialized,
+        hasVariants: meta.hasVariants,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        serialNumbers: item.serialNumbers,
+      })
+      if (!line.ok) {
+        throw new Error(
+          {
+            RESTOCK_NOT_TRACKED: `“${meta.name}” does not track stock.`,
+            RESTOCK_SERIALS_REQUIRED: `Add the serial numbers received for “${meta.name}”.`,
+            RESTOCK_QUANTITY_INVALID: `Quantity for “${meta.name}” must be greater than 0.`,
+            RESTOCK_VARIANT_REQUIRED: `Select a variant for “${meta.name}”.`,
+          }[line.code],
+        )
+      }
       const unitCost =
         item.unitCost != null && Number.isFinite(item.unitCost) && item.unitCost >= 0
           ? item.unitCost
           : null
-      if (meta.isSerialized) {
-        const serials = (item.serialNumbers ?? []).map((s) => s.trim()).filter(Boolean)
-        if (serials.length === 0)
-          throw new Error(`Add the serial numbers received for “${meta.name}”.`)
+      if (line.kind === 'SERIAL') {
+        const serials = line.serialNumbers
         return {
           kind: 'serial',
           productId: item.productId,
@@ -546,11 +573,8 @@ export class InventoryService {
           unitCost,
         }
       }
-      const qty = item.quantity ?? 0
-      if (!Number.isFinite(qty) || qty <= 0)
-        throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
-      if (meta.hasVariants) {
-        if (!item.variantId) throw new Error(`Select a variant for “${meta.name}”.`)
+      const qty = line.quantity
+      if (line.kind === 'VARIANT' && item.variantId) {
         const variant = this.db.get<{ id: string }>(
           `SELECT id FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`,
           [item.variantId, item.productId],
@@ -568,36 +592,46 @@ export class InventoryService {
       return { kind: 'direct', productId: item.productId, name: meta.name, quantity: qty, unitCost }
     })
 
-    // Settlement: goods subtotal − discounts + charges = invoice total, settled by payments.
-    const subtotal = round2(lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0))
+    // Settlement is @biztrack/domain's (`settleRestock`): the same goods value, invoice total,
+    // amount paid and credit the server records when this receipt syncs.
     const discountLines = (input.discounts ?? []).map((d) => ({
       ...d,
       id: d.id ?? randomUUID(),
-      amount: round2(Math.max(0, d.amount)),
+      amount: toWholeXaf(Math.max(0, d.amount)),
     }))
     const chargeLines = (input.charges ?? []).map((c) => ({
       ...c,
       id: c.id ?? randomUUID(),
-      amount: round2(Math.max(0, c.amount)),
+      amount: toWholeXaf(Math.max(0, c.amount)),
     }))
-    const discountAmount = round2(discountLines.reduce((s, d) => s + d.amount, 0))
-    const chargesAmount = round2(chargeLines.reduce((s, c) => s + c.amount, 0))
-    const totalAmount = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
-
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
     )
-    const amountPaid =
-      input.payments != null
-        ? round2(paymentLines.reduce((s, p) => s + p.amount, 0))
-        : input.amountPaid != null && Number.isFinite(input.amountPaid)
-          ? Math.max(0, Math.min(input.amountPaid, totalAmount))
-          : totalAmount
-    const creditAmount = round2(Math.max(0, totalAmount - amountPaid))
-    if (creditAmount > 0 && !input.supplierId)
-      throw new Error('Select a supplier for a restock on credit.')
+    const settlement = settleRestock({
+      lines,
+      discounts: discountLines.map((d) => d.amount),
+      charges: chargeLines.map((c) => c.amount),
+      payments: input.payments != null ? paymentLines.map((p) => p.amount) : null,
+      amountPaid: input.amountPaid,
+    })
+    if (!settlement.ok) {
+      throw new Error(
+        settlement.code === 'RESTOCK_PAYMENT_EXCEEDS_TOTAL'
+          ? 'The payments are more than the invoice total.'
+          : 'Enter a unit cost for every item received.',
+      )
+    }
+    const { subtotal, discountAmount, chargesAmount, totalAmount, amountPaid, creditAmount } =
+      settlement
     const invoiceFileUrl = input.invoiceFileUrl?.trim() || null
-    if (creditAmount > 0 && !invoiceFileUrl)
+    const creditProblem = checkRestockCredit({
+      creditAmount,
+      hasSupplier: !!input.supplierId,
+      hasInvoiceFile: !!invoiceFileUrl,
+    })
+    if (creditProblem === 'SUPPLIER_REQUIRED_FOR_CREDIT')
+      throw new Error('Select a supplier for a restock on credit.')
+    if (creditProblem === 'INVOICE_REQUIRED_FOR_CREDIT')
       throw new Error('Attach the supplier invoice for a receipt on credit.')
 
     const reference = input.reference?.trim() || null
@@ -671,7 +705,7 @@ export class InventoryService {
           restockId,
           businessId,
           p.method,
-          round2(p.amount),
+          toWholeXaf(p.amount),
           p.mobileMoneyReference ?? null,
           now,
         ],
@@ -793,7 +827,7 @@ export class InventoryService {
         createdAt: now,
         payments: paymentLines.map((p) => ({
           method: p.method,
-          amount: round2(p.amount),
+          amount: toWholeXaf(p.amount),
           ...(p.mobileMoneyReference ? { mobileMoneyReference: p.mobileMoneyReference } : {}),
         })),
         charges: chargeLines.map((c) => ({
@@ -1051,16 +1085,17 @@ export class InventoryService {
        GROUP BY si.product_id`,
       params,
     )
-    const cogsById = new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)]))
-    const factor = annualiseFactor(query.dateFrom, query.dateTo)
-    return stockRows
-      .map((r) => ({
+    // The report itself is @biztrack/domain's, as the other side builds it.
+    return inventoryTurnover({
+      stock: stockRows.map((r) => ({
         productId: r.productId,
         name: r.name,
-        avgStockCost: round2(Number(r.avgStockCost ?? 0)),
-        annualCogs: round2((cogsById.get(r.productId) ?? 0) * factor),
-      }))
-      .sort((a, b) => b.avgStockCost - a.avgStockCost)
+        stockCost: Number(r.avgStockCost ?? 0),
+      })),
+      cogsByProduct: new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)])),
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   /**
@@ -1090,19 +1125,18 @@ export class InventoryService {
        GROUP BY si.product_id`,
       [businessId],
     )
-    const lastById = new Map(lastRows.map((r) => [r.productId, r.lastSoldAt]))
-    const stockCostTotal = round2(stockRows.reduce((s, r) => s + Number(r.costValue ?? 0), 0))
-    const rows = stockRows
-      .map((r) => ({
+    // The report itself is @biztrack/domain's, as the other side builds it.
+    return deadStock({
+      stock: stockRows.map((r) => ({
         productId: r.productId,
         name: r.name,
         sku: r.sku ?? null,
         quantity: Number(r.qty ?? 0),
-        costValue: round2(Number(r.costValue ?? 0)),
-        daysSinceLastSale: daysSince(lastById.get(r.productId) ?? null),
-      }))
-      .filter((r) => r.daysSinceLastSale === null || r.daysSinceLastSale >= 60)
-    return { rows, stockCostTotal }
+        costValue: Number(r.costValue ?? 0),
+      })),
+      lastSoldAt: new Map(lastRows.map((r) => [r.productId, r.lastSoldAt])),
+      nowMs: Date.now(),
+    })
   }
 
   /**
@@ -1128,7 +1162,7 @@ export class InventoryService {
        ORDER BY rr.created_at ASC`,
       [businessId],
     )
-    return bucketSupplierPrices(rows)
+    return supplierPriceTrend(rows, Date.now())
   }
 
   // ---- internals -----------------------------------------------------------
@@ -1192,9 +1226,8 @@ export class InventoryService {
 
 function toInventoryItem(r: InventoryRow): LocalInventoryItem {
   const stock = Math.max(0, r.effective_stock ?? 0)
-  const threshold = r.reorder_point ?? r.low_stock_threshold ?? 0
-  const stockStatus: LocalInventoryItem['stockStatus'] =
-    stock <= 0 ? 'out' : threshold > 0 && stock <= threshold ? 'low' : 'in'
+  // Worked out in the query from @biztrack/domain's rule (STOCK_STATUS_EXPR).
+  const stockStatus = r.stock_status.toLowerCase() as LocalInventoryItem['stockStatus']
   return {
     productId: r.id,
     name: r.name,
@@ -1210,82 +1243,6 @@ function toInventoryItem(r: InventoryRow): LocalInventoryItem {
     stockValueCost: (r.cost_price ?? 0) * stock,
     lastRestockAt: r.last_restock_at,
   }
-}
-
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100
-}
-
-const MS_PER_DAY = 86400000
-
-// ── Report helpers — kept VERBATIM in sync with apps/api inventory.service.ts so the
-//    offline (SQLite) and online (API) turnover/dead-stock/supplier-price reports tie out. ──
-
-/** Annualise a period COGS by 365 / periodDays (inclusive). */
-function annualiseFactor(dateFrom?: string, dateTo?: string): number {
-  if (!dateFrom || !dateTo) return 1
-  const days = Math.max(
-    1,
-    Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1,
-  )
-  return 365 / days
-}
-
-/** Whole days between a last-sale timestamp and now; null when never sold. */
-function daysSince(ts: string | Date | null): number | null {
-  if (!ts) return null
-  const t = ts instanceof Date ? ts.getTime() : new Date(ts).getTime()
-  if (!Number.isFinite(t)) return null
-  return Math.max(0, Math.floor((Date.now() - t) / MS_PER_DAY))
-}
-
-/** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. */
-function bucketSupplierPrices(
-  rows: Array<{
-    productId: string
-    name: string
-    supplier: string | null
-    unitCost: string | number | null
-    createdAt: string | Date
-  }>,
-): SupplierPriceRow[] {
-  const now = Date.now()
-  const cut3 = now - 90 * MS_PER_DAY
-  const cut6 = now - 180 * MS_PER_DAY
-  const byProduct = new Map<
-    string,
-    { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }
-  >()
-  for (const r of rows) {
-    if (r.unitCost === null) continue
-    const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
-    const cost = Number(r.unitCost)
-    if (!Number.isFinite(t) || !Number.isFinite(cost)) continue
-    const g = byProduct.get(r.productId) ?? { name: r.name, supplier: r.supplier, entries: [] }
-    g.name = r.name
-    g.supplier = r.supplier // rows arrive ASC by created_at → last write is the latest supplier
-    g.entries.push({ cost, t })
-    byProduct.set(r.productId, g)
-  }
-  const pick = (entries: Array<{ cost: number; t: number }>, before: number): number | null => {
-    let best: { cost: number; t: number } | null = null
-    for (const e of entries) if (e.t <= before && (!best || e.t > best.t)) best = e
-    return best ? round2(best.cost) : null
-  }
-  const out: SupplierPriceRow[] = []
-  for (const [productId, g] of byProduct) {
-    const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
-    const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
-    out.push({
-      productId,
-      name: g.name,
-      supplier: g.supplier,
-      cost6mo: pick(sorted, cut6),
-      cost3mo: pick(sorted, cut3),
-      current,
-    })
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function normalizeThreshold(v: number | null): number | null {

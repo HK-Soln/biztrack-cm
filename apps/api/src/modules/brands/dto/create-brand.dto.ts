@@ -1,6 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayUnique, IsArray, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
+import {
+  ArrayUnique,
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+} from 'class-validator'
 import type { CreateBrandRequest } from '@biztrack/types'
 
 export class CreateBrandDto implements CreateBrandRequest {

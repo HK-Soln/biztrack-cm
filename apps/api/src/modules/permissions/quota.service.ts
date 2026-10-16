@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import {
-  type PlanQuotaResource,
-  type PlanQuotaUsage,
-  BusinessMemberStatus,
-} from '@biztrack/types'
+import { type PlanQuotaResource, type PlanQuotaUsage, BusinessMemberStatus } from '@biztrack/types'
 import { IsNull, Repository } from 'typeorm'
 import { AppPaymentRequiredException } from '@/common/exceptions/app-exceptions'
 import { BusinessMember } from '@/entities/business-member.entity'
@@ -88,10 +84,7 @@ export class QuotaService {
         const requiredPlan =
           snapshot.unlimited || snapshot.limit === null
             ? null
-            : await this.permissionsService.getMinimumPlanForQuota(
-                resource,
-                snapshot.used + 1,
-              )
+            : await this.permissionsService.getMinimumPlanForQuota(resource, snapshot.used + 1)
 
         return {
           ...snapshot,

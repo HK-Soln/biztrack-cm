@@ -731,6 +731,9 @@ export interface RoleSyncRecord extends SyncRecord {
   maxCartDiscountPercent: number | null
   maxDiscountAmountXaf: number | null
   allowBelowCost: boolean
+  /** Counts up each time the four fields above change (ruling R2). A till sends it back on
+   * every sale so the server knows which limits the sale was made under. */
+  limitsVersion?: number
   colour: string | null
   createdAt: string
 }
@@ -1048,11 +1051,22 @@ export interface SaleSyncDiscountLinePayload {
   belowCost?: boolean
 }
 
+/** Which discount limits a till applied to a sale. Roles reach a till only when it syncs, so
+ * these can be older than the limits in force on the server. */
+export interface SaleSyncDiscountPolicyPayload {
+  roleId: string | null
+  limitsVersion: number | null
+}
+
 /** A return (refund) the device recorded against the sale (BIZ-1.8). Rides inside the re-pushed
  * sale aggregate; the server creates the SaleReturn + REFUND payment on apply (idempotent by id)
  * so it converges with the row that pulls back down. */
 export interface SaleReturnPayload {
   id: string
+  /** When the return was made at the till (ISO). The server books the refund on this day. */
+  createdAt?: string | null
+  /** The till's local trading day for the return ('YYYY-MM-DD'). */
+  businessDate?: string | null
   reason?: string | null
   restock: boolean
   refundAmount: number
@@ -1102,6 +1116,8 @@ export interface SaleSyncPayload {
   items: SaleSyncItemPayload[]
   charges?: SaleSyncChargeLinePayload[]
   discounts?: SaleSyncDiscountLinePayload[]
+  /** The cashier's role and the version of its discount limits the till applied (ruling R2). */
+  discountPolicy?: SaleSyncDiscountPolicyPayload | null
   /** Returns/refunds recorded against this sale (BIZ-1.8). Present when the sale is REFUNDED or
    * PARTIALLY_REFUNDED; the server applies each new one idempotently by return id. */
   returns?: SaleReturnPayload[]

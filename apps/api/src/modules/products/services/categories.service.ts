@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { decideCategoryPlacement, decideCategoryRemoval } from '../category-placement'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -70,22 +71,10 @@ export class CategoriesService {
       await this.quotaService.assertWithinQuota(businessId, 'categories')
       await this.assertImageExists(dto.imageUrl)
 
-      let parentId: string | null = null
-      let depth = 1
-
-      if (dto.parentId) {
-        const parent = await this.requireParent(dto.parentId, businessId)
-        if (parent.depth >= MAX_CATEGORY_DEPTH) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.category_max_depth_exceeded'),
-            'MAX_DEPTH_EXCEEDED',
-          )
-        }
-        await this.assertParentHasNoProducts(parent.id, businessId)
-        await this.assertParentHasNoVariantOptions(parent.id, businessId)
-        parentId = parent.id
-        depth = parent.depth + 1
-      }
+      // Where it goes is @biztrack/domain's placeCategory, as on the till and the sync path.
+      const { parentId, depth } = await this.place(businessId, {
+        nextParentId: dto.parentId || null,
+      })
 
       const slug = await this.slugService.generateCategorySlug(dto.name, businessId)
       const category = this.categoriesRepo.create({
@@ -201,42 +190,14 @@ export class CategoriesService {
 
       let parentId = category.parentId ?? null
       let depth = category.depth
-
-      // Reparenting. Only leaf nodes can be reparented so we never have to
-      // cascade depth changes through a subtree (and a leaf has no descendants,
-      // so the only possible cycle is the node itself).
-      if (dto.parentId !== undefined) {
-        const nextParentId = dto.parentId || null
-        if (nextParentId !== (category.parentId ?? null)) {
-          if (await this.hasChildren(id, businessId)) {
-            throw new AppBadRequestException(
-              await this.i18n.translate('errors.category_reparent_has_children'),
-              'CATEGORY_REPARENT_HAS_CHILDREN',
-            )
-          }
-          if (nextParentId === null) {
-            parentId = null
-            depth = 1
-          } else {
-            if (nextParentId === id) {
-              throw new AppBadRequestException(
-                await this.i18n.translate('errors.category_parent_cycle'),
-                'CATEGORY_PARENT_CYCLE',
-              )
-            }
-            const parent = await this.requireParent(nextParentId, businessId)
-            if (parent.depth >= MAX_CATEGORY_DEPTH) {
-              throw new AppBadRequestException(
-                await this.i18n.translate('errors.category_max_depth_exceeded'),
-                'MAX_DEPTH_EXCEEDED',
-              )
-            }
-            await this.assertParentHasNoProducts(parent.id, businessId)
-            await this.assertParentHasNoVariantOptions(parent.id, businessId)
-            parentId = parent.id
-            depth = parent.depth + 1
-          }
-        }
+      // Only a category with no sub-categories moves, at most three levels deep, never under
+      // one holding products or variant options (@biztrack/domain placeCategory).
+      if (dto.parentId !== undefined && (dto.parentId || null) !== parentId) {
+        ;({ parentId, depth } = await this.place(businessId, {
+          selfId: id,
+          currentParentId: parentId,
+          nextParentId: dto.parentId || null,
+        }))
       }
 
       const slug = dto.name
@@ -273,25 +234,21 @@ export class CategoriesService {
     try {
       await this.findById(id, businessId)
 
-      if (await this.hasChildren(id, businessId)) {
+      const problem = await decideCategoryRemoval(
+        this.categoryAttributeGroupsRepo.manager,
+        businessId,
+        id,
+      )
+      if (problem === 'CATEGORY_HAS_CHILDREN') {
         throw new AppConflictException(
           await this.i18n.translate('errors.category_reparent_has_children'),
           'CATEGORY_HAS_CHILDREN',
         )
       }
-
-      const productCount = await this.productsRepo
-        .createQueryBuilder('product')
-        .where('product.business_id = :businessId', { businessId })
-        .andWhere('product.category_id = :id', { id })
-        .andWhere('product.deleted_at IS NULL')
-        .getCount()
-
-      if (productCount > 0) {
+      if (problem === 'CATEGORY_HAS_PRODUCTS') {
         throw new AppConflictException(
           await this.i18n.translate('errors.category_has_products'),
           'CATEGORY_HAS_PRODUCTS',
-          { productCount },
         )
       }
 
@@ -321,52 +278,36 @@ export class CategoriesService {
     return category
   }
 
-  private async requireParent(parentId: string, businessId: string): Promise<ProductCategory> {
-    const parent = await this.categoriesRepo.findOne({
-      where: { id: parentId, businessId, deletedAt: IsNull() },
+  /** Where a category goes, by @biztrack/domain's placeCategory; refusals in this API's codes. */
+  private async place(
+    businessId: string,
+    input: { selfId?: string; currentParentId?: string | null; nextParentId: string | null },
+  ): Promise<{ parentId: string | null; depth: number }> {
+    const result = await decideCategoryPlacement(this.categoryAttributeGroupsRepo.manager, {
+      businessId,
+      ...input,
     })
-    if (!parent) {
+    if (result.ok) return { parentId: result.parentId, depth: result.depth }
+    if (result.code === 'CATEGORY_PARENT_NOT_FOUND') {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.category_parent_not_found'),
         'CATEGORY_PARENT_NOT_FOUND',
       )
     }
-    return parent
-  }
-
-  private async assertParentHasNoProducts(parentId: string, businessId: string): Promise<void> {
-    const parentProductCount = await this.productsRepo
-      .createQueryBuilder('product')
-      .where('product.business_id = :businessId', { businessId })
-      .andWhere('product.category_id = :parentId', { parentId })
-      .andWhere('product.deleted_at IS NULL')
-      .getCount()
-
-    if (parentProductCount > 0) {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.category_parent_has_products'),
-        'PARENT_HAS_PRODUCTS',
-      )
-    }
-  }
-
-  private async assertParentHasNoVariantOptions(
-    parentId: string,
-    businessId: string,
-  ): Promise<void> {
-    if (await this.hasVariantOptions(parentId, businessId)) {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.category_parent_has_variant_options'),
+    const [key, code] = {
+      CATEGORY_PARENT_CYCLE: ['errors.category_parent_cycle', 'CATEGORY_PARENT_CYCLE'],
+      MAX_DEPTH_EXCEEDED: ['errors.category_max_depth_exceeded', 'MAX_DEPTH_EXCEEDED'],
+      CATEGORY_REPARENT_HAS_CHILDREN: [
+        'errors.category_reparent_has_children',
+        'CATEGORY_REPARENT_HAS_CHILDREN',
+      ],
+      CATEGORY_PARENT_HAS_PRODUCTS: ['errors.category_parent_has_products', 'PARENT_HAS_PRODUCTS'],
+      CATEGORY_PARENT_HAS_VARIANT_OPTIONS: [
+        'errors.category_parent_has_variant_options',
         'PARENT_HAS_VARIANT_OPTIONS',
-      )
-    }
-  }
-
-  private async hasVariantOptions(categoryId: string, businessId: string): Promise<boolean> {
-    const count = await this.categoryAttributeGroupsRepo.count({
-      where: { businessId, categoryId, deletedAt: IsNull() },
-    })
-    return count > 0
+      ],
+    }[result.code] as [string, string]
+    throw new AppBadRequestException(await this.i18n.translate(key as never), code)
   }
 
   /**
@@ -453,17 +394,6 @@ export class CategoriesService {
       select: { categoryId: true },
     })
     return new Set(links.map((l) => l.categoryId))
-  }
-
-  /** Any non-deleted child (active or not) — used to block reparent/delete. */
-  private async hasChildren(parentId: string, businessId: string): Promise<boolean> {
-    const count = await this.categoriesRepo
-      .createQueryBuilder('category')
-      .where('category.business_id = :businessId', { businessId })
-      .andWhere('category.parent_id = :parentId', { parentId })
-      .andWhere('category.deleted_at IS NULL')
-      .getCount()
-    return count > 0
   }
 
   /** Active (isActive=true, non-deleted) children — determines leaf status. */

@@ -60,6 +60,17 @@ export class DailySaleSummary extends TypeOrmBaseEntity {
   })
   totalTransacted!: number
 
+  /** Refunded goods value subtracted from this day's revenue (ruling R4). */
+  @Column({
+    name: 'total_refunds',
+    type: 'decimal',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  totalRefunds!: number
+
   @Column({
     name: 'total_cost',
     type: 'decimal',

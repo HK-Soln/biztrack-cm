@@ -9,6 +9,7 @@ import react from '@vitejs/plugin-react'
 // targets ("… must be under apps/desktop-v2"). Bundling removes them from the packaged
 // node_modules entirely. Native/third-party deps (better-sqlite3, etc.) stay external.
 const BUNDLED_WORKSPACE_PKGS = [
+  '@biztrack/domain',
   '@biztrack/electron-core',
   '@biztrack/http-client',
   '@biztrack/templates',
@@ -23,6 +24,7 @@ const BUNDLED_WORKSPACE_PKGS = [
 const workspaceSrc = (pkg: string, entry = 'src/index.ts') =>
   resolve(__dirname, `../../packages/${pkg}/${entry}`)
 const MAIN_ALIASES = {
+  '@biztrack/domain': workspaceSrc('domain'),
   '@biztrack/electron-core': workspaceSrc('electron-core'),
   '@biztrack/http-client': workspaceSrc('http-client'),
   '@biztrack/templates': workspaceSrc('templates'),
@@ -120,6 +122,7 @@ export default defineConfig(({ mode }) => {
           '@': resolve(__dirname, 'src/renderer/src'),
           '@shared': resolve(__dirname, 'src/shared'),
           '@biztrack/types': resolve(__dirname, '../../packages/types/src'),
+          '@biztrack/domain': resolve(__dirname, '../../packages/domain/src'),
           '@biztrack/utils': resolve(__dirname, '../../packages/utils/src'),
           '@biztrack/templates': resolve(__dirname, '../../packages/templates/src'),
           // Cloud HTTP client (browser flavor) — alias to source so the renderer bundles

@@ -1,3 +1,4 @@
+import { toWholeXaf } from '@biztrack/domain'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -19,7 +20,6 @@ import {
   isMomo,
   newId,
   num,
-  round2,
   TENDERS,
   type ChargeRow,
   type DiscountRow,
@@ -355,7 +355,7 @@ export function ReceiveStock() {
         }
       }
     }
-    return { items, subtotal: round2(subtotal), units }
+    return { items, subtotal: toWholeXaf(subtotal), units }
   }, [lines, meta, groups])
 
   const totals = useMemo(
@@ -972,7 +972,7 @@ export function ReceiveStock() {
                     {vName ? ` · ${vName}` : ''}{' '}
                     <span style={{ color: 'var(--text-2)' }}>× {qty}</span>
                   </span>
-                  <span>{money.format(round2(qty * (it.unitCost ?? 0)))}</span>
+                  <span>{money.format(toWholeXaf(qty * (it.unitCost ?? 0)))}</span>
                 </div>
               )
             })}

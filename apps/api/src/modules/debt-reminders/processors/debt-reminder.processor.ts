@@ -2,7 +2,8 @@ import { Inject, Injectable } from '@nestjs/common'
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger } from '@biztrack/logger'
-import { DebtDirection, DebtStatus } from '@biztrack/types'
+import { DebtDirection } from '@biztrack/types'
+import { openDebtSql } from '@biztrack/domain'
 import type { Job, Queue } from 'bullmq'
 import { Repository } from 'typeorm'
 import { RedisService } from '@/common/redis/redis.service'
@@ -61,8 +62,8 @@ export class DebtReminderProcessor extends WorkerHost {
   private async processScan() {
     const rows = (await this.debtRepo.query(
       `SELECT DISTINCT business_id FROM debts
-       WHERE direction = $1 AND status IN ($2, $3) AND deleted_at IS NULL`,
-      [DebtDirection.RECEIVABLE, DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID],
+       WHERE direction = $1 AND ${openDebtSql('status')} AND deleted_at IS NULL`,
+      [DebtDirection.RECEIVABLE],
     )) as Array<{ business_id: string }>
 
     const dayKey = dayKeyInTimezone(new Date(), DEBT_REMINDER_TIMEZONE)

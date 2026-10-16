@@ -17,6 +17,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@biztrack/domain": "workspace:*",
     "@biztrack/types": "workspace:*",
     "zod": "^4.3.6"
   },

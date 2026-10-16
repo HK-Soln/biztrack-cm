@@ -3,7 +3,7 @@ import type { IsoDateString } from './http.types'
 // BIZ-5.2 — fiscal years + accounting periods. A business's transactions bucket (by their
 // business_date) into monthly accounting periods, which roll up into a fiscal year. Periods are
 // generated eagerly (12 per fiscal year) and carry a lifecycle driven by the close pipeline
-// (BIZ-5.3). The deterministic date generation lives in @biztrack/utils (generateFiscalPeriods).
+// (BIZ-5.3). The deterministic date generation lives in @biztrack/domain (generateFiscalPeriods).
 
 /** Lifecycle of an accounting period. Transitions come from the close pipeline (BIZ-5.3).
  *  LOCKED is terminal — there is no reopen path. */

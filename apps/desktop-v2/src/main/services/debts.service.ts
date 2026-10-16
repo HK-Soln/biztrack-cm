@@ -1,14 +1,19 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
-import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
-import type {
-  AgeingEntry,
-  AgeingReport,
-  ContactStatement,
-  ContactStatementEntry,
-  DebtDirection,
-} from '@biztrack/types'
+import { CashMovementKind, DEFAULT_CREDIT_DAYS, type DebtStatus } from '@biztrack/types'
+import {
+  buildAgeingReport,
+  buildContactStatement,
+  checkDebtPayment,
+  debtAfterChange,
+  debtBalance,
+  debtCanBeWrittenOff,
+  debtSettledAt,
+  openDebtSql,
+  planDebtOffset,
+  reduceDebt,
+} from '@biztrack/domain'
+import type { AgeingReport, ContactStatement, DebtDirection } from '@biztrack/types'
 import type {
   DebtsQuery,
   LocalDebt,
@@ -18,8 +23,6 @@ import type {
 import { paginateRows, toPaginated } from './pagination'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 interface DebtRow {
   id: string
@@ -79,8 +82,15 @@ export class DebtsService {
     }) => void = () => {},
   ) {}
 
-  /** Create a debt from a source transaction (e.g. a credit restock → supplier payable).
-   * Idempotent per source: returns the existing debt id if one already exists. */
+  /**
+   * Create a debt from a source transaction (a credit sale → receivable, a credit restock →
+   * supplier payable). Idempotent per source: returns the existing debt id if there is one.
+   *
+   * The debt of a sale or a restock is derived from that record: the server creates its own
+   * when the sale or restock syncs, so this one is not pushed, and its id is the fixed
+   * `debt:<source>:<id>` the server's record pulls back onto. (SQLite triggers used to
+   * create these rows; the rule now lives here.)
+   */
   createSourceDebt(input: CreateSourceDebtInput): string {
     const businessId = this.requireBusinessId()
     const existing = this.db.get<{ id: string }>(
@@ -88,16 +98,16 @@ export class DebtsService {
       [businessId, input.sourceType, input.sourceId, input.direction],
     )
     if (existing) {
-      // The row may already exist from a DB trigger (sale/restock receivable). If the caller
-      // supplied an explicit due date (e.g. credit terms chosen at checkout), apply it — the
-      // trigger inserts due_date NULL, so the effective due falls back to the default until set.
+      // Apply an explicit due date (e.g. credit terms chosen at checkout) to a row that
+      // already exists.
       if (input.dueDate) {
         this.db.run(`UPDATE debts SET due_date = ? WHERE id = ?`, [input.dueDate, existing.id])
       }
       return existing.id
     }
 
-    const id = randomUUID()
+    const derived = input.sourceType === 'SALE' || input.sourceType === 'RESTOCK'
+    const id = derived ? `debt:${input.sourceType.toLowerCase()}:${input.sourceId}` : randomUUID()
     const now = input.createdAt ?? new Date().toISOString()
     // Local trading day (BIZ-5.1) from the debt's creation timestamp.
     const businessDate = localBusinessDate(now)
@@ -119,6 +129,7 @@ export class DebtsService {
         now,
       ],
     )
+    if (derived) return id
     this.enqueue(id, businessId, now)
     this.onMutated()
     this.audit?.log({
@@ -140,6 +151,85 @@ export class DebtsService {
   }
 
   /**
+   * What is still owed and what has been paid on the debt of a source (a sale's receivable),
+   * for deciding a return. Zeros when there is no debt; a written-off debt owes nothing.
+   */
+  sourceDebtBalance(
+    sourceType: 'SALE' | 'RESTOCK',
+    sourceId: string,
+  ): { outstanding: number; paid: number } {
+    const debt = this.sourceDebt(sourceType, sourceId)
+    if (!debt) return { outstanding: 0, paid: 0 }
+    // A written-off debt owes nothing (@biztrack/domain debtBalance, as the server).
+    const standing = debtBalance({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid,
+      status: debt.status as DebtStatus,
+    })
+    return { outstanding: standing.outstandingAmount, paid: standing.paidAmount }
+  }
+
+  /**
+   * Take returned goods off the debt of a source (ruling R10). How far the debt comes down
+   * and where it then stands is `reduceDebt` in @biztrack/domain, as on the server. Not
+   * pushed: the server reduces its own record when the return syncs.
+   */
+  reduceSourceDebt(sourceType: 'SALE' | 'RESTOCK', sourceId: string, amount: number): void {
+    if (!(amount > 0)) return
+    const debt = this.sourceDebt(sourceType, sourceId)
+    if (!debt || !debtCanBeWrittenOff(debt.status as never)) return
+    const reduced = reduceDebt({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid,
+      reduction: amount,
+    })
+    this.db.run(`UPDATE debts SET original_amount = ?, status = ?, settled_at = ? WHERE id = ?`, [
+      reduced.originalAmount,
+      reduced.standing.status,
+      debtSettledAt(reduced.standing, debt.settled_at, new Date().toISOString()),
+      debt.id,
+    ])
+  }
+
+  /**
+   * Write off the debt of a source that was cancelled (a voided sale, everything returned).
+   * A debt already paid in full stays settled (ruling R11). Not pushed: the server writes
+   * its own record off when the void or return syncs.
+   */
+  writeOffSourceDebt(input: {
+    sourceType: 'SALE' | 'RESTOCK'
+    sourceId: string
+    reason: string
+    at: string
+    by: string | null
+  }): void {
+    const debt = this.sourceDebt(input.sourceType, input.sourceId)
+    if (!debt || !debtCanBeWrittenOff(debt.status as never)) return
+    this.db.run(
+      `UPDATE debts SET status = 'WRITTEN_OFF', settled_at = NULL, written_off_at = ?,
+              written_off_by = ?, written_off_reason = ?
+        WHERE id = ?`,
+      [input.at, input.by, input.reason.trim() || 'Written off', debt.id],
+    )
+  }
+
+  private sourceDebt(sourceType: string, sourceId: string) {
+    return this.db.get<{
+      id: string
+      original_amount: number
+      status: string
+      settled_at: string | null
+      paid: number
+    }>(
+      `SELECT d.id, d.original_amount, d.status, d.settled_at,
+              COALESCE((SELECT SUM(amount) FROM debt_payments WHERE debt_id = d.id), 0) AS paid
+         FROM debts d
+        WHERE d.business_id = ? AND d.source_type = ? AND d.source_id = ?`,
+      [this.requireBusinessId(), sourceType, sourceId],
+    )
+  }
+
+  /**
    * Create or update the debt that mirrors a contact's opening balance so it can be paid like any
    * other debt. Natural key (business, OPENING_BALANCE, contactId, direction) with
    * `source_id = contactId` — deterministic and identical on desktop + cloud, so the two converge
@@ -154,23 +244,29 @@ export class DebtsService {
   }): string {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
-    const existing = this.db.get<{ id: string; status: string }>(
-      `SELECT id, status FROM debts WHERE business_id = ? AND source_type = 'OPENING_BALANCE' AND source_id = ? AND direction = ?`,
+    const existing = this.db.get<{ id: string; status: string; settled_at: string | null }>(
+      `SELECT id, status, settled_at FROM debts WHERE business_id = ? AND source_type = 'OPENING_BALANCE' AND source_id = ? AND direction = ?`,
       [businessId, input.contactId, input.direction],
     )
 
     if (existing) {
-      if (existing.status === 'WRITTEN_OFF') return existing.id
       const paid =
         this.db.get<{ p: number }>(
           `SELECT COALESCE(SUM(amount), 0) AS p FROM debt_payments WHERE debt_id = ?`,
           [existing.id],
         )?.p ?? 0
-      const settled = paid >= input.amount - 1e-6
-      const status = settled ? 'SETTLED' : paid > 0 ? 'PARTIALLY_PAID' : 'OUTSTANDING'
+      // Where the debt now stands (@biztrack/domain debtAfterChange, as the server); a
+      // written-off one stays written off with its new amount.
+      const next = debtAfterChange({
+        originalAmount: input.amount,
+        paidAmount: paid,
+        status: existing.status as DebtStatus,
+        settledAt: existing.settled_at,
+        at: now,
+      })
       this.db.run(
         `UPDATE debts SET original_amount = ?, status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
-        [input.amount, status, settled ? now : null, existing.id, businessId],
+        [input.amount, next.status, next.settledAt, existing.id, businessId],
       )
       this.enqueue(existing.id, businessId, now)
       this.onMutated()
@@ -234,14 +330,31 @@ export class DebtsService {
     const businessId = this.requireBusinessId()
     const debt = this.getRow(debtId, businessId)
     if (!debt) throw new Error('Debt not found.')
-    if (debt.status === 'WRITTEN_OFF') throw new Error('This debt has been written off.')
-    const amount = Number(input.amount)
-    if (!Number.isFinite(amount) || amount <= 0)
-      throw new Error('Payment amount must be greater than 0.')
-    const outstanding = debt.original_amount - debt.paid_amount
-    if (amount > outstanding + 1e-6) throw new Error('Payment exceeds the outstanding balance.')
-
     const now = new Date().toISOString()
+    // An open debt, above zero, not before the debt, no more than is owed:
+    // @biztrack/domain's rule, as on the server.
+    const payment = checkDebtPayment({
+      amount: Number(input.amount),
+      outstanding: debtBalance({
+        originalAmount: debt.original_amount,
+        paidAmount: debt.paid_amount,
+        status: debt.status as DebtStatus,
+      }).outstandingAmount,
+      status: debt.status as DebtStatus,
+      paymentDate: input.paymentDate || now,
+      debtCreatedDate: debt.created_at,
+    })
+    if (!payment.ok)
+      throw new Error(
+        {
+          DEBT_PAYMENT_LOCKED: 'This debt is settled or written off.',
+          DEBT_PAYMENT_AMOUNT_INVALID: 'Payment amount must be greater than 0.',
+          DEBT_PAYMENT_DATE_INVALID: 'The payment cannot be dated before the debt.',
+          DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING: 'Payment exceeds the outstanding balance.',
+        }[payment.code],
+      )
+    const { amount } = payment
+
     // Local trading day (BIZ-5.1) from the payment date.
     const businessDate = localBusinessDate(input.paymentDate || now)
     this.db.run(
@@ -262,12 +375,19 @@ export class DebtsService {
       ],
     )
 
-    const paid = debt.paid_amount + amount
-    const settled = paid >= debt.original_amount - 1e-6
-    const status = settled ? 'SETTLED' : 'PARTIALLY_PAID'
+    // Where the debt now stands is @biztrack/domain's rule, the one the server applies.
+    const next = debtAfterChange({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid_amount + amount,
+      status: debt.status as DebtStatus,
+      settledAt: debt.settled_at,
+      at: now,
+    })
+    const { status } = next
+    const paid = next.standing.paidAmount
     this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
       status,
-      settled ? now : null,
+      next.settledAt,
       debtId,
       businessId,
     ])
@@ -313,35 +433,27 @@ export class DebtsService {
     const openDebts = (direction: 'RECEIVABLE' | 'PAYABLE'): LocalDebt[] =>
       this.db
         .query<DebtRow>(
-          `SELECT ${COLS} FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND d.direction = ? AND d.status != 'WRITTEN_OFF' ORDER BY d.created_at ASC`,
+          `SELECT ${COLS} FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND d.direction = ? AND ${openDebtSql('d.status')} ORDER BY d.created_at ASC`,
           [businessId, contactId, direction],
         )
         .map(toLocalDebt)
         .filter((d) => d.outstandingAmount > 0)
 
-    const recv = openDebts('RECEIVABLE')
-    const pay = openDebts('PAYABLE')
-    const totalR = round2(recv.reduce((s, d) => s + d.outstandingAmount, 0))
-    const totalP = round2(pay.reduce((s, d) => s + d.outstandingAmount, 0))
-    const offsetAmount = round2(Math.min(totalR, totalP))
-    if (offsetAmount <= 0) throw new Error('Nothing to offset — both sides need an open balance.')
+    // How much is netted, and against which debts, is @biztrack/domain's, as on the server.
+    const plan = planDebtOffset({
+      receivables: openDebts('RECEIVABLE').map((d) => ({ ...d, outstanding: d.outstandingAmount })),
+      payables: openDebts('PAYABLE').map((d) => ({ ...d, outstanding: d.outstandingAmount })),
+    })
+    if (!plan.ok) throw new Error('Nothing to offset — both sides need an open balance.')
+    const { offsetAmount, receivableTotal: totalR, payableTotal: totalP } = plan
 
     const now = new Date().toISOString()
     const ref = `OFFSET-${now.slice(0, 10).replace(/-/g, '')}`
     let affected = 0
-    const allocate = (debts: LocalDebt[]) => {
-      let remaining = offsetAmount
-      for (const d of debts) {
-        if (remaining <= 1e-6) break
-        const applied = round2(Math.min(remaining, d.outstandingAmount))
-        if (applied <= 0) continue
-        this.applyContra(d.id, businessId, applied, ref, now)
-        remaining = round2(remaining - applied)
-        affected++
-      }
+    for (const { debt, amount } of plan.allocations) {
+      this.applyContra(debt.id, businessId, amount, ref, now)
+      affected++
     }
-    allocate(recv)
-    allocate(pay)
 
     this.onMutated()
     this.audit?.log({
@@ -384,12 +496,19 @@ export class DebtsService {
         now,
       ],
     )
-    const paid = debt.paid_amount + amount
-    const settled = paid >= debt.original_amount - 1e-6
-    const status = settled ? 'SETTLED' : 'PARTIALLY_PAID'
+    // Where the debt now stands is @biztrack/domain's rule, the one the server applies.
+    const next = debtAfterChange({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid_amount + amount,
+      status: debt.status as DebtStatus,
+      settledAt: debt.settled_at,
+      at: now,
+    })
+    const { status } = next
+    const paid = next.standing.paidAmount
     this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
       status,
-      settled ? now : null,
+      next.settledAt,
       debtId,
       businessId,
     ])
@@ -471,11 +590,6 @@ export class DebtsService {
     )
     if (debts.length === 0) return base
 
-    // The opening balance is now an OPENING_BALANCE debt (pinned to the opening date so it sorts
-    // first); it renders as the opening entry and its payments flow like any other debt.
-    base.openingBalance =
-      debts.find((d) => d.source_type === 'OPENING_BALANCE')?.original_amount ?? 0
-
     const ids = debts.map((d) => d.id)
     const ph = ids.map(() => '?').join(',')
     const pays = this.db.query<{
@@ -486,76 +600,46 @@ export class DebtsService {
       payment_date: string | null
       created_at: string
     }>(
-      `SELECT debt_id, amount, method, mobile_money_reference, payment_date, created_at FROM debt_payments WHERE debt_id IN (${ph}) ORDER BY payment_date ASC, created_at ASC`,
+      `SELECT debt_id, amount, method, mobile_money_reference, payment_date, created_at FROM debt_payments WHERE debt_id IN (${ph})`,
       ids,
     )
+    const writtenOff = new Map(
+      this.db
+        .query<{
+          id: string
+          written_off_at: string | null
+        }>(`SELECT id, written_off_at FROM debts WHERE id IN (${ph})`, ids)
+        .map((r) => [r.id, r.written_off_at]),
+    )
 
-    const paidByDebt = new Map<string, number>()
-    for (const p of pays) paidByDebt.set(p.debt_id, (paidByDebt.get(p.debt_id) ?? 0) + p.amount)
-
-    type Ev =
-      | { date: string; kind: 'debt'; debt: DebtRow }
-      | { date: string; kind: 'pay'; pay: (typeof pays)[number] }
-      | { date: string; kind: 'woff'; amount: number }
-    const events: Ev[] = []
-    for (const d of debts) {
-      events.push({ date: d.created_at, kind: 'debt', debt: d })
-      if (d.status === 'WRITTEN_OFF') {
-        const remaining = Math.max(0, d.original_amount - (paidByDebt.get(d.id) ?? 0))
-        if (remaining > 0)
-          events.push({ date: d.settled_at || d.created_at, kind: 'woff', amount: remaining })
-      }
-    }
-    for (const p of pays) events.push({ date: p.payment_date || p.created_at, kind: 'pay', pay: p })
-    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-
-    let balance = 0
-    const entries: ContactStatementEntry[] = []
-    for (const e of events) {
-      if (e.kind === 'debt') {
-        const isOpening = e.debt.source_type === 'OPENING_BALANCE'
-        balance = round2(balance + e.debt.original_amount)
-        entries.push({
-          date: e.debt.created_at,
-          type: isOpening
-            ? ContactStatementEntryType.OPENING_BALANCE
-            : ContactStatementEntryType.DEBT_CREATED,
-          direction,
-          reference: isOpening ? null : e.debt.source_reference,
-          description: isOpening ? 'Opening balance' : e.debt.source_type,
-          debit: e.debt.original_amount,
-          credit: 0,
-          balance,
-        })
-      } else if (e.kind === 'pay') {
-        balance = round2(balance - e.pay.amount)
-        entries.push({
-          date: e.date,
-          type: ContactStatementEntryType.PAYMENT,
-          direction,
-          reference: e.pay.method,
-          description: e.pay.mobile_money_reference ?? '',
-          debit: 0,
-          credit: e.pay.amount,
-          balance,
-        })
-      } else {
-        balance = round2(balance - e.amount)
-        entries.push({
-          date: e.date,
-          type: ContactStatementEntryType.WRITE_OFF,
-          direction,
-          reference: null,
-          description: '',
-          debit: 0,
-          credit: e.amount,
-          balance,
-        })
-      }
-    }
-    base.entries = entries
-    base.closingBalance = balance
-    return base
+    // The statement and its running balance are @biztrack/domain's (buildContactStatement),
+    // as on the server. The opening balance is an OPENING_BALANCE debt dated to the opening day.
+    const statement = buildContactStatement({
+      direction,
+      debts: debts.map((d) => ({
+        contactId: d.contact_id,
+        direction: d.direction as DebtDirection,
+        sourceType: d.source_type as 'SALE',
+        sourceReference: d.source_reference,
+        originalAmount: d.original_amount,
+        paidAmount: d.paid_amount ?? 0,
+        status: d.status as DebtStatus,
+        dueDate: d.due_date,
+        createdAt: d.created_at,
+        settledAt: d.settled_at,
+        writtenOffAt: writtenOff.get(d.id) ?? null,
+        payments: pays
+          .filter((p) => p.debt_id === d.id)
+          .map((p) => ({
+            amount: p.amount,
+            method: p.method,
+            mobileMoneyReference: p.mobile_money_reference,
+            paymentDate: (p.payment_date || p.created_at).slice(0, 10),
+            createdAt: p.created_at,
+          })),
+      })),
+    })
+    return { ...base, ...statement }
   }
 
   /**
@@ -586,107 +670,46 @@ export class DebtsService {
     // Opening balances are now OPENING_BALANCE debts, so they come back in this scan — kept in
     // their own column (not aged), never double-counted against a separate opening-balance table.
     const debts = this.db.query<{
-      id: string
       contact_id: string
       source_type: string
       original_amount: number
+      status: string
       created_at: string
       due_date: string | null
       paid_amount: number
     }>(
-      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, d.due_date, ${PAID} AS paid_amount
-       FROM debts d WHERE d.business_id = ? AND d.direction = ? AND d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`,
+      `SELECT d.contact_id, d.source_type, d.original_amount, d.status, d.created_at, d.due_date, ${PAID} AS paid_amount
+       FROM debts d WHERE d.business_id = ? AND d.direction = ? AND ${openDebtSql('d.status')}`,
       [businessId, direction],
     )
-
-    interface Bucket {
-      openingBalance: number
-      current: number
-      moderate: number
-      aged: number
-      overdue: number
-      pastDue: number
-      total: number
-    }
-    const buckets = new Map<string, Bucket>()
-
-    for (const d of debts) {
-      const paid = round2(d.paid_amount ?? 0)
-      const outstanding = round2(Math.max(0, d.original_amount - paid))
-      if (outstanding <= 0) continue
-      const b = buckets.get(d.contact_id) ?? {
-        openingBalance: 0,
-        current: 0,
-        moderate: 0,
-        aged: 0,
-        overdue: 0,
-        pastDue: 0,
-        total: 0,
-      }
-      if (d.source_type === 'OPENING_BALANCE') {
-        b.openingBalance = round2(b.openingBalance + outstanding)
-      } else {
-        const due = effectiveDueDate(
-          { dueDate: d.due_date, createdAt: d.created_at },
-          DEFAULT_CREDIT_DAYS,
-        )
-        const overdueDays = daysPastDue(due, now)
-        if (overdueDays <= 7) b.current = round2(b.current + outstanding)
-        else if (overdueDays <= 15) b.moderate = round2(b.moderate + outstanding)
-        else if (overdueDays <= 30) b.aged = round2(b.aged + outstanding)
-        else b.overdue = round2(b.overdue + outstanding)
-        if (overdueDays > 0) b.pastDue = round2(b.pastDue + outstanding)
-        b.total = round2(b.total + outstanding)
-      }
-      buckets.set(d.contact_id, b)
-    }
-
-    const contactIds = [...buckets.keys()]
-    const contactInfo = new Map<string, { name: string; phone: string | null }>()
+    const contactIds = [...new Set(debts.map((d) => d.contact_id))]
+    const contacts = new Map<string, { name: string; phone: string | null }>()
     if (contactIds.length > 0) {
       const ph = contactIds.map(() => '?').join(',')
       const rows = this.db.query<{ id: string; name: string; phone: string | null }>(
         `SELECT id, name, phone FROM contacts WHERE business_id = ? AND id IN (${ph})`,
         [businessId, ...contactIds],
       )
-      for (const r of rows) contactInfo.set(r.id, { name: r.name, phone: r.phone })
+      for (const r of rows) contacts.set(r.id, { name: r.name, phone: r.phone })
     }
 
-    const entries: AgeingEntry[] = contactIds
-      .filter((id) => contactInfo.has(id)) // skip debts whose contact row is missing (mirrors API `if (!debt.contact) continue`)
-      .map((id) => {
-        const b = buckets.get(id)!
-        const info = contactInfo.get(id)!
-        return {
-          contactId: id,
-          contactName: info.name,
-          contactPhone: info.phone,
-          openingBalance: b.openingBalance,
-          current: b.current,
-          moderate: b.moderate,
-          aged: b.aged,
-          overdue: b.overdue,
-          pastDue: b.pastDue,
-          totalOutstanding: round2(b.openingBalance + b.total),
-        }
-      })
-
-    entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
-
-    const totals = entries.reduce(
-      (acc, e) => ({
-        openingBalance: round2(acc.openingBalance + e.openingBalance),
-        current: round2(acc.current + e.current),
-        moderate: round2(acc.moderate + e.moderate),
-        aged: round2(acc.aged + e.aged),
-        overdue: round2(acc.overdue + e.overdue),
-        pastDue: round2(acc.pastDue + e.pastDue),
-        totalOutstanding: round2(acc.totalOutstanding + e.totalOutstanding),
-      }),
-      { ...emptyTotals },
-    )
-
-    return { direction, asOf: today, entries, totals }
+    // The buckets, totals and order are @biztrack/domain's (buildAgeingReport), as the server.
+    return buildAgeingReport({
+      direction,
+      creditDays: DEFAULT_CREDIT_DAYS,
+      now,
+      contacts,
+      debts: debts.map((d) => ({
+        contactId: d.contact_id,
+        direction,
+        sourceType: d.source_type as 'SALE',
+        originalAmount: d.original_amount,
+        paidAmount: d.paid_amount ?? 0,
+        status: d.status as DebtStatus,
+        dueDate: d.due_date,
+        createdAt: d.created_at,
+      })),
+    })
   }
 
   // ---- internals -----------------------------------------------------------
@@ -778,7 +801,13 @@ export class DebtsService {
 }
 
 function toLocalDebt(row: DebtRow): LocalDebt {
-  const paid = row.paid_amount ?? 0
+  // What is paid and still owed (@biztrack/domain debtBalance, as the server): whole francs,
+  // nothing owed on a written-off debt.
+  const balance = debtBalance({
+    originalAmount: row.original_amount,
+    paidAmount: row.paid_amount ?? 0,
+    status: row.status as DebtStatus,
+  })
   return {
     id: row.id,
     contactId: row.contact_id,
@@ -786,8 +815,8 @@ function toLocalDebt(row: DebtRow): LocalDebt {
     sourceType: row.source_type as LocalDebt['sourceType'],
     sourceReference: row.source_reference,
     originalAmount: row.original_amount,
-    paidAmount: paid,
-    outstandingAmount: Math.max(0, row.original_amount - paid),
+    paidAmount: balance.paidAmount,
+    outstandingAmount: balance.outstandingAmount,
     status: row.status as LocalDebt['status'],
     dueDate: row.due_date,
     notes: row.notes,

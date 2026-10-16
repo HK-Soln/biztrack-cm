@@ -1,3 +1,4 @@
+import { contactNet } from '@biztrack/domain'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currency'
@@ -58,14 +59,29 @@ export function AccountantHome() {
 
       <SectionLabel>{t('home.secFinance')}</SectionLabel>
       <div className="grid4 mb20">
-        <Kpi label={t('home.kRevenue')} value={money.compact(revenue)} hint={t('home.hSales').replace('{n}', String(s?.transactions ?? 0))} />
+        <Kpi
+          label={t('home.kRevenue')}
+          value={money.compact(revenue)}
+          hint={t('home.hSales').replace('{n}', String(s?.transactions ?? 0))}
+        />
         <Kpi
           label={t('home.kExpenses')}
           value={money.compact(spend)}
-          badge={e && e.changePct !== 0 ? { text: `${e.changePct > 0 ? '▲' : '▼'} ${Math.abs(e.changePct).toFixed(1)}%`, tone: e.changePct > 0 ? 'down' : 'up' } : null}
+          badge={
+            e && e.changePct !== 0
+              ? {
+                  text: `${e.changePct > 0 ? '▲' : '▼'} ${Math.abs(e.changePct).toFixed(1)}%`,
+                  tone: e.changePct > 0 ? 'down' : 'up',
+                }
+              : null
+          }
         />
         <Kpi label={t('home.kOperating')} value={money.compact(operating)} />
-        <Kpi label={t('home.kReceivable')} value={money.compact(c?.totalReceivable ?? 0)} hint={t('home.hDebtors').replace('{n}', String(c?.debtorCount ?? 0))} />
+        <Kpi
+          label={t('home.kReceivable')}
+          value={money.compact(c?.totalReceivable ?? 0)}
+          hint={t('home.hDebtors').replace('{n}', String(c?.debtorCount ?? 0))}
+        />
       </div>
 
       <div className="split mb20" style={{ alignItems: 'stretch' }}>
@@ -79,14 +95,47 @@ export function AccountantHome() {
           }
         >
           <div className="pnl" style={{ marginTop: 0, borderTop: 0, paddingTop: 0 }}>
-            <div className="row"><span>{t('home.pRevenue')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(revenue)}</span></div>
-            <div className="row"><span>{t('home.pExpenses')}</span><span style={{ color: 'var(--danger)', fontWeight: 600 }}>−{money.format(spend)}</span></div>
-            <div className="row total"><span>{t('home.pOperating')}</span><span style={{ color: operating < 0 ? 'var(--danger)' : undefined }}>{money.format(operating)}</span></div>
+            <div className="row">
+              <span>{t('home.pRevenue')}</span>
+              <span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(revenue)}</span>
+            </div>
+            <div className="row">
+              <span>{t('home.pExpenses')}</span>
+              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                −{money.format(spend)}
+              </span>
+            </div>
+            <div className="row total">
+              <span>{t('home.pOperating')}</span>
+              <span style={{ color: operating < 0 ? 'var(--danger)' : undefined }}>
+                {money.format(operating)}
+              </span>
+            </div>
           </div>
           <div className="pnl">
-            <div className="row"><span>{t('home.pReceivable')}</span><span style={{ color: 'var(--success)', fontWeight: 600 }}>{money.format(c?.totalReceivable ?? 0)}</span></div>
-            <div className="row"><span>{t('home.pPayable')}</span><span style={{ color: 'var(--danger)', fontWeight: 600 }}>−{money.format(c?.totalPayable ?? 0)}</span></div>
-            <div className="row total"><span>{t('home.pNetWorking')}</span><span>{money.format((c?.totalReceivable ?? 0) - (c?.totalPayable ?? 0))}</span></div>
+            <div className="row">
+              <span>{t('home.pReceivable')}</span>
+              <span style={{ color: 'var(--success)', fontWeight: 600 }}>
+                {money.format(c?.totalReceivable ?? 0)}
+              </span>
+            </div>
+            <div className="row">
+              <span>{t('home.pPayable')}</span>
+              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                −{money.format(c?.totalPayable ?? 0)}
+              </span>
+            </div>
+            <div className="row total">
+              <span>{t('home.pNetWorking')}</span>
+              <span>
+                {money.format(
+                  contactNet({
+                    totalReceivable: c?.totalReceivable ?? 0,
+                    totalPayable: c?.totalPayable ?? 0,
+                  }),
+                )}
+              </span>
+            </div>
           </div>
         </Card>
 
@@ -100,16 +149,28 @@ export function AccountantHome() {
           }
         >
           {(e?.byCategory ?? []).slice(0, 6).map((cat) => (
-            <ProgressRow key={cat.categoryId} name={cat.name} pct={cat.percentage} color={cat.color} amount={money.format(cat.amount)} />
+            <ProgressRow
+              key={cat.categoryId}
+              name={cat.name}
+              pct={cat.percentage}
+              color={cat.color}
+              amount={money.format(cat.amount)}
+            />
           ))}
-          {(e?.byCategory ?? []).length === 0 ? <div className="card-empty">{t('home.noData')}</div> : null}
+          {(e?.byCategory ?? []).length === 0 ? (
+            <div className="card-empty">{t('home.noData')}</div>
+          ) : null}
         </Card>
       </div>
 
       <SectionLabel>{t('home.secAction')}</SectionLabel>
       <div className="split mb20" style={{ alignItems: 'stretch' }}>
         <Card title={t('home.cExpTrend')} sub={t('home.cExpTrendSub')}>
-          {trendItems.length ? <Bars items={trendItems} /> : <div className="card-empty">{t('home.noData')}</div>}
+          {trendItems.length ? (
+            <Bars items={trendItems} />
+          ) : (
+            <div className="card-empty">{t('home.noData')}</div>
+          )}
         </Card>
         <Card
           title={t('home.cApprovals')}
@@ -128,11 +189,17 @@ export function AccountantHome() {
               right={<span className="amt-neg">−{money.format(x.amount)}</span>}
             />
           ))}
-          {!pending.isPending && pendingRows.length === 0 ? <div className="card-empty">{t('home.noPending')}</div> : null}
+          {!pending.isPending && pendingRows.length === 0 ? (
+            <div className="card-empty">{t('home.noPending')}</div>
+          ) : null}
         </Card>
       </div>
 
-      <RecentSales rows={recent.data?.data ?? []} loading={recent.isPending} onViewAll={() => navigate('/sales')} />
+      <RecentSales
+        rows={recent.data?.data ?? []}
+        loading={recent.isPending}
+        onViewAll={() => navigate('/sales')}
+      />
     </div>
   )
 }

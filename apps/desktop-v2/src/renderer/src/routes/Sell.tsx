@@ -4,7 +4,13 @@ import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PayableType, PaymentMethod } from '@biztrack/types'
-import { evaluateDiscountAuthorization, majorToMinor } from '@biztrack/utils'
+import {
+  evaluateDiscountAuthorization,
+  majorToMinor,
+  priceSale,
+  toWholeXaf,
+  variantPrice,
+} from '@biztrack/domain'
 import { dataClient } from '@/lib/data-client'
 import { toSaleApiBody } from '@/lib/cloud-sales'
 import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
@@ -249,10 +255,6 @@ interface Cust {
   selfieUrl?: string | null
 }
 
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100
-}
-
 // Held/parked sales live only in the browser (no DB / no sync) — a counter convenience.
 const HELD_KEY = 'biztrack:sell:held'
 interface Held {
@@ -423,7 +425,7 @@ export function Sell() {
   }
   const addVariant = (p: LocalProduct, v: LocalVariant) => {
     const key = `${p.id}:${v.id}`
-    const unitPrice = v.priceOverride ?? p.sellingPrice
+    const unitPrice = variantPrice(p, v)
     setCart((prev) => {
       const found = prev.find((l) => l.key === key)
       if (found) return prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l))
@@ -541,7 +543,7 @@ export function Sell() {
       setSerialPick({
         productId: product.id,
         productName: product.name,
-        unitPrice: variant.priceOverride ?? product.sellingPrice,
+        unitPrice: variantPrice(product, variant),
         variantId: variant.id,
         variantName: variant.name,
       })
@@ -555,7 +557,7 @@ export function Sell() {
           key: `${e.product.id}:${e.variant.id}`,
           name: `${e.product.name} · ${e.variant.name}`,
           imageUrl: e.product.imageUrl,
-          price: e.variant.priceOverride ?? e.product.sellingPrice,
+          price: variantPrice(e.product, e.variant),
           stock: e.variant.stockQuantity,
           trackInventory: e.product.trackInventory,
         }
@@ -678,19 +680,30 @@ export function Sell() {
 
   // --- totals --------------------------------------------------------------
   const calc = useMemo(() => {
-    const subtotal = round2(cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0))
+    // The same pricing the sale is recorded with (@biztrack/domain), so the total the
+    // cashier sees is the total that is saved: whole francs, bargained lines included.
+    const lines = cart.map((l) => ({
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      unitPriceListed: l.unitPriceListed ?? l.unitPrice,
+    }))
+    const subtotal = priceSale({ lines }).subtotal
     const amountOf = (c: ChargeLine) =>
-      round2(c.mode === 'PERCENT' ? (subtotal * c.value) / 100 : c.value)
-    let disc = 0,
-      chg = 0
+      toWholeXaf(Math.max(0, c.mode === 'PERCENT' ? (subtotal * c.value) / 100 : c.value))
+    let cartDiscount = 0,
+      chargeTotal = 0
     for (const c of charges) {
-      if (c.kind === 'discount') disc += amountOf(c)
-      else chg += amountOf(c)
+      if (c.kind === 'discount') cartDiscount += amountOf(c)
+      else chargeTotal += amountOf(c)
     }
-    disc = round2(Math.min(subtotal, disc))
-    chg = round2(chg)
-    const total = round2(Math.max(0, subtotal - disc + chg))
-    return { subtotal, disc, chg, total, amountOf }
+    const priced = priceSale({ lines, cartDiscount, charges: chargeTotal })
+    return {
+      subtotal,
+      disc: priced.discountAmount,
+      chg: priced.chargesAmount,
+      total: priced.totalAmount,
+      amountOf,
+    }
   }, [cart, charges])
 
   const itemCount = cart.reduce((a, l) => a + l.quantity, 0)
@@ -1823,9 +1836,7 @@ function VariantPicker({
                         {out ? t('sell.outOfStock') : `${v.stockQuantity} ${t('sell.inStock')}`}
                       </div>
                     </div>
-                    <div className="ch">
-                      {money.format(v.priceOverride ?? product.sellingPrice)}
-                    </div>
+                    <div className="ch">{money.format(variantPrice(product, v))}</div>
                   </button>
                 )
               })}
@@ -2117,17 +2128,17 @@ function PaymentModal({
   const t2 = tendered == null ? total : tendered
   const change = t2 - total
   const allocated = splitKeys.reduce((a, k) => a + (splits[k] || 0), 0)
-  const remaining = round2(total - allocated)
+  const remaining = toWholeXaf(total - allocated)
 
   // deposit method: deposit covers min(balance, total); remainder paid in cash.
-  const depApplied = round2(Math.min(depBalance, total))
-  const depRemaining = round2(total - depApplied)
+  const depApplied = toWholeXaf(Math.min(depBalance, total))
+  const depRemaining = toWholeXaf(total - depApplied)
   const depTendered = depRem == null ? depRemaining : depRem
   const depChange = depTendered - depRemaining
   // Forced-deposit (arrived from Collect): deposit is auto-applied + locked; any remainder is
   // collected via the other method inputs, and whatever is still unpaid becomes credit.
   const depOtherAllocated = SPLIT_KEYS.reduce((a, k) => a + (splits[k] || 0), 0)
-  const depLeftover = round2(total - depApplied - depOtherAllocated)
+  const depLeftover = toWholeXaf(total - depApplied - depOtherAllocated)
 
   // Show the optional "expected payment date" picker whenever the sale will leave a credit
   // balance on a registered customer. Skippable — omitting it falls back to the business

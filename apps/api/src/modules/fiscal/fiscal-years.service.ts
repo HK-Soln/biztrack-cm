@@ -12,7 +12,7 @@ import {
   fiscalYearOf,
   generateFiscalPeriods,
   localDateInTimezone,
-} from '@biztrack/utils'
+} from '@biztrack/domain'
 import { Business } from '@/entities/business.entity'
 import { FiscalYear } from '@/entities/fiscal-year.entity'
 import { AccountingPeriod } from '@/entities/accounting-period.entity'

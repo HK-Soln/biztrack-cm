@@ -5,13 +5,40 @@ import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
-  allocateProRata,
-  evaluateDiscountAuthorization,
+  checkSaleCredit,
+  decideSaleRefund,
+  decideSaleVoid,
+  discountNeedsAuthorization,
+  hasPriceDrift,
   isBelowCost,
+  netCashierRoster,
+  netDailySales,
+  netSalesByProduct,
+  netSalesSummary,
+  priceSale,
+  PROFIT_SALE_STATUSES,
+  refundProfitImpact,
+  refundsReport,
+  returnDebtReduction,
+  returnsByCashier,
+  returnTotals,
+  returnTotalsBy,
+  reviewSerialAlreadySold,
+  reviewStockAfterSyncedSale,
+  reviewSyncedDiscount,
+  reviewSyncedRefund,
+  roundQuantity,
+  saleOpensDebt,
+  saleReturnStatus,
+  saleStockLines,
+  settleSale,
+  settleSaleFromLedger,
+  staffMay,
+  storedPaymentMethod,
   toWholeXaf,
-} from '@biztrack/utils'
+  variantCost,
+} from '@biztrack/domain'
 import {
-  BusinessMemberRole,
   DebtDirection,
   DebtSource,
   PaymentMethod,
@@ -30,11 +57,19 @@ import {
   type SaleSyncPayload,
   type SalesByPaymentRow,
   type SalesByProductRow,
+  type ReviewFlagDraft,
   type SalesQuery,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
+import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
+import { loadSyncedDiscountContext } from './sales-discount-review.query'
+import {
+  loadNetSalesProfit,
+  loadPeriodReturnLines,
+  loadSaleRefundImpact,
+} from './sales-profit.query'
 import {
   AppBadRequestException,
   AppForbiddenException,
@@ -49,6 +84,7 @@ import type { AuditContext, RefundSaleInput } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
+import { MovementType } from '@/entities/inventory-movement.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
@@ -163,6 +199,7 @@ export class SalesService {
     private readonly i18n: I18nService<I18nTranslations>,
     private readonly config: ConfigService,
     @Inject(LOGGER) private readonly logger: Logger,
+    private readonly reviewFlags: ReviewFlagsService,
   ) {
     this.logger.setContext('SalesService')
   }
@@ -262,9 +299,10 @@ export class SalesService {
           computeDto,
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, computeDto)
-        const amountPaid = toWholeXaf(
-          dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
-        )
+        const { amountPaid, changeGiven } = settleSale({
+          totalAmount: computed.totalAmount,
+          payments: dto.payments,
+        })
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
           manager,
           businessId,
@@ -272,10 +310,9 @@ export class SalesService {
           computed.totalAmount,
           amountPaid,
         )
-        const paymentMethod = this.deriveStoredPaymentMethod(dto.payments)
+        const paymentMethod = storedPaymentMethod(dto.payments)
         const momoReference = this.firstMobileMoneyReference(dto.payments)
 
-        const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
         const now = new Date()
         // Local trading day (BIZ-5.1). A cloud cashier's sale rung at a till inherits its shift's
@@ -355,32 +392,20 @@ export class SalesService {
           ? await manager.getRepository(Role).findOne({ where: { id: user.roleId } })
           : null
         const authorizedBy = dto.authorizedByUserId ?? null
-        const { overLimit } = evaluateDiscountAuthorization(
+        // BIZ-1.5: a line sold below cost needs the same manager authorization, unless
+        // the role may sell below cost. Cost is the per-line snapshot; a null cost is
+        // skipped silently.
+        const belowCost = this.saleIsBelowCost(computed)
+        const { needsAuthorization } = discountNeedsAuthorization(
           {
             maxDiscountPercent: role?.maxDiscountPercent ?? null,
             maxCartDiscountPercent: role?.maxCartDiscountPercent ?? null,
             maxDiscountAmountXaf: role?.maxDiscountAmountXaf ?? null,
+            allowBelowCost: role?.allowBelowCost ?? false,
           },
-          {
-            lines: computed.items.map((it) => ({
-              discountAmount: it.discountAmount,
-              listedLineValue: toWholeXaf((it.unitPriceListed ?? it.unitPrice) * it.quantity),
-            })),
-            cartDiscount: computed.saleDiscountAmount,
-            subtotal: computed.subtotal,
-          },
+          this.saleDiscountInput(computed),
+          belowCost,
         )
-        // BIZ-1.5: a line sold below cost needs the same manager authorization, unless
-        // the role may sell below cost. Cost is the per-line snapshot; a null cost is
-        // skipped silently. The effective charged unit price nets the line discount.
-        const belowCost = isBelowCost(
-          computed.items.map((it) => ({
-            chargedUnitPrice:
-              it.quantity > 0 ? (it.unitPrice * it.quantity - it.discountAmount) / it.quantity : 0,
-            cost: it.costPrice,
-          })),
-        )
-        const needsAuthorization = overLimit || (belowCost && !(role?.allowBelowCost ?? false))
         const discountUnauthorized = needsAuthorization && !authorizedBy
         auditDiscountUnauthorized = discountUnauthorized
         auditDiscountBelowCost = belowCost
@@ -513,7 +538,17 @@ export class SalesService {
           manager,
         )
 
-        await this.markSerialUnitsSold(manager, businessId, sale.id, customerId ?? null, saleItems)
+        await this.markSerialUnitsSold(
+          manager,
+          businessId,
+          sale.id,
+          customerId ?? null,
+          saleItems,
+          {
+            saleNumber: sale.saleNumber,
+            userId: user.sub,
+          },
+        )
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
@@ -595,8 +630,15 @@ export class SalesService {
   async createFromSync(businessId: string, payload: SaleSyncPayload) {
     try {
       let saleId: string | null = null
+      // A sale from an offline till already happened: it is recorded as it happened, and
+      // anything the server disagrees with becomes a review flag for the owner instead of a
+      // rejection (rulings R1 and R3). Online orders are posted by the server, so they keep
+      // the strict checks.
+      const fromOfflineTill = !payload.onlineOrderId && payload.source !== SaleSource.ONLINE
+      const flagDrafts: ReviewFlagDraft[] = []
+      let raisedFlags: ReviewFlagDraft[] = []
 
-      await this.dataSource.transaction(async (manager) => {
+      const apply = async (manager: EntityManager): Promise<void> => {
         const saleRepo = manager.getRepository(Sale)
         const targetStatus = this.normalizeSyncSaleStatus(payload.status)
         const existingInTransaction = await saleRepo.findOne({
@@ -619,7 +661,13 @@ export class SalesService {
               targetStatus === SaleStatus.PARTIALLY_REFUNDED) &&
             (payload.returns?.length ?? 0) > 0
           ) {
-            await this.applyRefundFromSync(manager, businessId, existingInTransaction.id, payload)
+            await this.applyRefundFromSync(
+              manager,
+              businessId,
+              existingInTransaction.id,
+              payload,
+              flagDrafts,
+            )
           }
 
           return
@@ -631,11 +679,19 @@ export class SalesService {
           manager,
           businessId,
           payload,
+          { allowUnavailableSerials: fromOfflineTill },
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, payload)
-        const amountPaid = toWholeXaf(
-          payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
-        )
+        const { amountPaid, changeGiven } = settleSale({
+          totalAmount: computed.totalAmount,
+          payments: payload.payments,
+        })
+        // An online order's balance is cash on delivery, collected on the order (R20). Only a
+        // sale for a real order of this business counts, so a till cannot claim it.
+        const collectedOnDelivery =
+          payload.source === SaleSource.ONLINE &&
+          !!payload.onlineOrderId &&
+          (await this.isOnlineOrder(manager, businessId, payload.onlineOrderId))
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
           manager,
           businessId,
@@ -643,12 +699,12 @@ export class SalesService {
           computed.totalAmount,
           amountPaid,
           payload.creditAmount,
+          collectedOnDelivery,
         )
-        const paymentMethod = this.deriveStoredPaymentMethod(payload.payments)
+        const paymentMethod = storedPaymentMethod(payload.payments)
         const momoReference = this.firstMobileMoneyReference(payload.payments)
 
         const cashierId = this.resolveSyncCashierId(payload)
-        const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         let saleNumber = payload.saleNumber?.trim() || null
 
         if (!saleNumber) {
@@ -826,7 +882,32 @@ export class SalesService {
           }
         }
 
-        await this.inventoryService.deductForSale(
+        // R2: decide again whether the discount needed a manager, with the limits in force
+        // when the sale was made. The till's rows above are kept as sent; a disagreement
+        // becomes a flag.
+        if (fromOfflineTill) {
+          const context = await loadSyncedDiscountContext(
+            manager,
+            businessId,
+            payload,
+            cashierId,
+            soldAt,
+          )
+          const flag = context.till
+            ? reviewSyncedDiscount({
+                saleId: sale.id,
+                discount: this.saleDiscountInput(computed),
+                belowCost: this.saleIsBelowCost(computed),
+                till: context.till,
+                cashierPolicy: context.cashierPolicy,
+                tillPolicy: context.tillPolicy,
+                approverPolicy: context.approverPolicy,
+              })
+            : null
+          if (flag) flagDrafts.push(flag)
+        }
+
+        const shortfalls = await this.inventoryService.deductForSale(
           businessId,
           sale.id,
           sale.saleNumber,
@@ -843,26 +924,57 @@ export class SalesService {
             })),
           ),
           manager,
+          { allowNegative: fromOfflineTill },
         )
+        for (const shortfall of shortfalls) {
+          const flag = reviewStockAfterSyncedSale({
+            saleId: sale.id,
+            ...shortfall,
+          })
+          if (flag) flagDrafts.push(flag)
+        }
 
         // Online orders post the sale at confirm but keep serials RESERVED until handover
         // (deferSerialSold); they flip to SOLD when the order is delivered/picked up.
         if (!payload.deferSerialSold) {
-          await this.markSerialUnitsSold(
+          const serialConflicts = await this.markSerialUnitsSold(
             manager,
             businessId,
             sale.id,
             customerId ?? null,
-            saleItems,
+            saleItems.map((item, index) => ({
+              id: item.id,
+              productId: item.productId,
+              variantId: item.variantId ?? null,
+              serialUnitId: item.serialUnitId ?? null,
+              movementId: payload.items[index]?.movementId ?? null,
+            })),
+            { saleNumber: sale.saleNumber, userId: cashierId },
+            { tolerateUnavailable: fromOfflineTill },
           )
+          // The unit stays with the sale that already holds it; this sale stands too, and
+          // the owner is told one physical unit is on two sales.
+          for (const serialUnitId of serialConflicts) {
+            const unit = await manager
+              .getRepository(ProductSerialUnit)
+              .findOne({ where: { id: serialUnitId, businessId } })
+            flagDrafts.push(
+              reviewSerialAlreadySold({
+                saleId: sale.id,
+                serialUnitId,
+                serialNumber: unit?.serialNumber ?? null,
+                soldOnSaleId: unit?.saleId ?? null,
+              }),
+            )
+          }
         }
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
-        if (creditAmount > 0 && customerId) {
+        if (saleOpensDebt({ creditAmount, hasCustomer: !!customerId, collectedOnDelivery })) {
           await this.debtsService.createSourceDebt(manager, {
             businessId,
-            contactId: customerId,
+            contactId: customerId!,
             direction: DebtDirection.RECEIVABLE,
             sourceType: DebtSource.SALE,
             sourceId: sale.id,
@@ -882,10 +994,17 @@ export class SalesService {
           (payload.returns?.length ?? 0) > 0
         ) {
           // A sale rung + returned offline before its first sync — apply the return after insert.
-          await this.applyRefundFromSync(manager, businessId, sale.id, payload)
+          await this.applyRefundFromSync(manager, businessId, sale.id, payload, flagDrafts)
         }
         saleId = sale.id
+      }
+
+      await this.dataSource.transaction(async (manager) => {
+        await apply(manager)
+        raisedFlags = await this.reviewFlags.raise(manager, businessId, flagDrafts)
       })
+      // Tell the owner only once the sale and its flags are committed.
+      void this.reviewFlags.notify(businessId, raisedFlags, payload.saleNumber)
 
       if (!saleId) {
         throw new AppInternalServerException(
@@ -1088,15 +1207,17 @@ export class SalesService {
       }
       const where = conds.join(' AND ')
       const mgr = this.salesRepo.manager
+      // Net of the period's returns (ruling R19); voids and returns are the "refunds".
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
       const [tot] = (await mgr.query(
         `SELECT COALESCE(SUM(s.total_amount), 0) AS revenue, COUNT(*)::int AS txns
-         FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+         FROM sales s WHERE ${where} AND s.status IN (${statuses})`,
         params,
       )) as Array<{ revenue: string; txns: number }>
       const [units] = (await mgr.query(
         `SELECT COALESCE(SUM(si.quantity), 0) AS units
          FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
+         WHERE ${where} AND s.status IN (${statuses}) AND si.deleted_at IS NULL`,
         params,
       )) as Array<{ units: string }>
       const [ref] = (await mgr.query(
@@ -1109,16 +1230,16 @@ export class SalesService {
       ])) as Array<{
         currency: string | null
       }>
+      const returned = await loadPeriodReturnLines(mgr, businessId, query)
 
-      const revenue = toWholeXaf(Number(tot?.revenue ?? 0))
-      const transactions = Number(tot?.txns ?? 0)
       return {
-        revenue,
-        transactions,
-        averageBasket: transactions > 0 ? toWholeXaf(revenue / transactions) : 0,
-        itemsSold: Number(units?.units ?? 0),
-        refundCount: Number(ref?.n ?? 0),
-        refundAmount: toWholeXaf(Number(ref?.amt ?? 0)),
+        ...netSalesSummary({
+          soldRevenue: Number(tot?.revenue ?? 0),
+          transactions: Number(tot?.txns ?? 0),
+          soldUnits: Number(units?.units ?? 0),
+          returns: returnTotals(returned),
+          voids: { count: Number(ref?.n ?? 0), amount: Number(ref?.amt ?? 0) },
+        }),
         currency: biz?.currency ?? 'XAF',
       }
     } catch (error) {
@@ -1152,14 +1273,16 @@ export class SalesService {
         conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+      // Refund payments are left out here and taken off the day they were paid (ruling R19).
       const rows = (await this.salesRepo.manager.query(
-        `SELECT d.bday AS date, d.txns, d.total, d.credit,
+        `SELECT d.bday::text AS date, d.txns, d.total, d.credit,
                 COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
          FROM (
            SELECT ${day} AS bday, COUNT(*)::int AS txns,
                   COALESCE(SUM(s.total_amount), 0) AS total,
                   COALESCE(SUM(s.credit_amount), 0) AS credit
-           FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+           FROM sales s WHERE ${where} AND s.status IN (${statuses})
            GROUP BY ${day}
          ) d
          LEFT JOIN (
@@ -1168,13 +1291,13 @@ export class SalesService {
                   SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
                   SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
            FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-           WHERE ${where} AND s.status = 'COMPLETED'
+           WHERE ${where} AND s.status IN (${statuses}) AND sp.kind <> 'REFUND'
            GROUP BY ${day}
          ) p ON p.bday = d.bday
          ORDER BY d.bday ASC`,
         params,
       )) as Array<{
-        date: string | Date
+        date: string
         txns: number
         total: string
         credit: string
@@ -1182,18 +1305,49 @@ export class SalesService {
         momo: string
         card: string
       }>
-      return rows.map((r) => ({
-        date:
-          typeof r.date === 'string'
-            ? r.date.slice(0, 10)
-            : new Date(r.date).toISOString().slice(0, 10),
-        transactions: Number(r.txns ?? 0),
-        total: toWholeXaf(Number(r.total ?? 0)),
-        cash: toWholeXaf(Number(r.cash ?? 0)),
-        momo: toWholeXaf(Number(r.momo ?? 0)),
-        card: toWholeXaf(Number(r.card ?? 0)),
-        credit: toWholeXaf(Number(r.credit ?? 0)),
-      }))
+
+      const refundDay = `(COALESCE(sp.recorded_at, sp.created_at) AT TIME ZONE 'UTC')::date`
+      const refundParams: unknown[] = [businessId]
+      const refundConds: string[] = []
+      if (query.dateFrom) {
+        refundParams.push(query.dateFrom)
+        refundConds.push(`${refundDay} >= $${refundParams.length}`)
+      }
+      if (query.dateTo) {
+        refundParams.push(query.dateTo)
+        refundConds.push(`${refundDay} <= $${refundParams.length}`)
+      }
+      const refundPayments = (await this.salesRepo.manager.query(
+        `SELECT (${refundDay})::text AS date,
+                SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
+                SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
+                SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+         WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status <> 'VOIDED'
+           AND sp.kind = 'REFUND'${refundConds.length ? ` AND ${refundConds.join(' AND ')}` : ''}
+         GROUP BY ${refundDay}`,
+        refundParams,
+      )) as Array<{ date: string; cash: string; momo: string; card: string }>
+      const returned = await loadPeriodReturnLines(this.salesRepo.manager, businessId, query)
+
+      return netDailySales({
+        sold: rows.map((r) => ({
+          date: String(r.date).slice(0, 10),
+          transactions: Number(r.txns ?? 0),
+          total: Number(r.total ?? 0),
+          cash: Number(r.cash ?? 0),
+          momo: Number(r.momo ?? 0),
+          card: Number(r.card ?? 0),
+          credit: Number(r.credit ?? 0),
+        })),
+        returns: returnTotalsBy(returned, (line) => line.day),
+        refundPayments: refundPayments.map((r) => ({
+          date: String(r.date).slice(0, 10),
+          cash: Number(r.cash ?? 0),
+          momo: Number(r.momo ?? 0),
+          card: Number(r.card ?? 0),
+        })),
+      })
     } catch (error) {
       return this.handleServiceError('getDailySeries', error, { businessId })
     }
@@ -1223,17 +1377,19 @@ export class SalesService {
         conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
+      // Sold = the profit statuses; returns come off the selling cashier on the day of the
+      // return (ruling R19). Discounts count as given, whatever was returned later.
+      const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
       const rows = (await this.salesRepo.manager.query(
         `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
-                COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN ${day} END)::int AS shifts,
-                COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END)::int AS transactions,
-                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
+                COUNT(DISTINCT CASE WHEN ${sold} THEN ${day} END)::int AS shifts,
+                COUNT(CASE WHEN ${sold} THEN 1 END)::int AS transactions,
+                COALESCE(SUM(CASE WHEN ${sold} THEN s.total_amount ELSE 0 END), 0) AS sales,
                 COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
-                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.discount_amount ELSE 0 END), 0) AS discounts
+                COALESCE(SUM(CASE WHEN ${sold} THEN s.discount_amount ELSE 0 END), 0) AS discounts
          FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
          WHERE ${where}
-         GROUP BY s.cashier_id, u.name
-         ORDER BY sales DESC`,
+         GROUP BY s.cashier_id, u.name`,
         params,
       )) as Array<{
         cashierId: string
@@ -1244,15 +1400,19 @@ export class SalesService {
         refunds: string
         discounts: string
       }>
-      return rows.map((r) => ({
-        cashierId: r.cashierId,
-        name: r.name || '—',
-        shifts: Number(r.shifts ?? 0),
-        transactions: Number(r.transactions ?? 0),
-        sales: toWholeXaf(Number(r.sales ?? 0)),
-        refunds: toWholeXaf(Number(r.refunds ?? 0)),
-        discounts: toWholeXaf(Number(r.discounts ?? 0)),
-      }))
+      const returned = await loadPeriodReturnLines(this.salesRepo.manager, businessId, query)
+      return netCashierRoster(
+        rows.map((r) => ({
+          cashierId: r.cashierId,
+          name: r.name || '—',
+          shifts: Number(r.shifts ?? 0),
+          transactions: Number(r.transactions ?? 0),
+          sales: Number(r.sales ?? 0),
+          refunds: Number(r.refunds ?? 0),
+          discounts: Number(r.discounts ?? 0),
+        })),
+        returnsByCashier(returned),
+      )
     } catch (error) {
       return this.handleServiceError('getCashierRoster', error, { businessId })
     }
@@ -1295,10 +1455,12 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<SalesByProductRow[]> {
     try {
-      // Financial (gross-profit-by-product) → range by posting_date (BIZ-5.4).
+      // Financial (gross-profit-by-product) → range by posting_date (BIZ-5.4). Net of the
+      // period's refunds (ruling R4): the netting is @biztrack/domain's netSalesByProduct.
       const { where, params } = this.rangeWhere(query, 'financial')
       params[0] = businessId
-      const rows = (await this.salesRepo.manager.query(
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+      const sold = (await this.salesRepo.manager.query(
         `SELECT si.product_id AS "productId", si.product_name AS name, c.name AS category,
                 COALESCE(SUM(si.quantity), 0) AS quantity,
                 COALESCE(SUM(si.line_total), 0) AS revenue,
@@ -1307,9 +1469,8 @@ export class SalesService {
            JOIN sales s ON s.id = si.sale_id
            LEFT JOIN products p ON p.id = si.product_id
            LEFT JOIN product_categories c ON c.id = p.category_id
-         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL
-         GROUP BY si.product_id, si.product_name, c.name
-         ORDER BY revenue DESC`,
+         WHERE ${where} AND s.status IN (${statuses}) AND si.deleted_at IS NULL
+         GROUP BY si.product_id, si.product_name, c.name`,
         params,
       )) as Array<{
         productId: string
@@ -1319,14 +1480,66 @@ export class SalesService {
         revenue: string
         cogs: string
       }>
-      return rows.map((r) => ({
-        productId: r.productId,
-        name: r.name,
-        category: r.category ?? null,
-        quantity: Number(r.quantity ?? 0),
-        revenue: toWholeXaf(Number(r.revenue ?? 0)),
-        cogs: toWholeXaf(Number(r.cogs ?? 0)),
-      }))
+
+      const returnDay = `COALESCE(r.business_date, (r.created_at AT TIME ZONE 'UTC')::date)`
+      const returnParams: unknown[] = [businessId]
+      const returnConds: string[] = []
+      if (query.dateFrom) {
+        returnParams.push(query.dateFrom)
+        returnConds.push(`${returnDay} >= $${returnParams.length}`)
+      }
+      if (query.dateTo) {
+        returnParams.push(query.dateTo)
+        returnConds.push(`${returnDay} <= $${returnParams.length}`)
+      }
+      const returned = (await this.salesRepo.manager.query(
+        `SELECT r.id AS "returnId", r.restock AS restock, ri.quantity AS "returnedQuantity",
+                si.quantity AS "soldQuantity", si.line_total AS "lineTotal",
+                si.cost_price AS "costPrice", si.product_id AS "productId",
+                si.product_name AS name, c.name AS category
+         FROM sale_return_items ri
+           JOIN sale_returns r ON r.id = ri.sale_return_id
+           JOIN sale_items si ON si.id = ri.sale_item_id
+           JOIN sales s ON s.id = r.sale_id
+           LEFT JOIN products p ON p.id = si.product_id
+           LEFT JOIN product_categories c ON c.id = p.category_id
+         WHERE r.business_id = $1 AND s.deleted_at IS NULL AND s.status <> 'VOIDED'${
+           returnConds.length ? ` AND ${returnConds.join(' AND ')}` : ''
+         }`,
+        returnParams,
+      )) as Array<{
+        returnId: string
+        restock: boolean
+        returnedQuantity: string
+        soldQuantity: string
+        lineTotal: string
+        costPrice: string | null
+        productId: string
+        name: string
+        category: string | null
+      }>
+
+      return netSalesByProduct(
+        sold.map((r) => ({
+          productId: r.productId,
+          name: r.name,
+          category: r.category ?? null,
+          quantity: Number(r.quantity ?? 0),
+          revenue: Number(r.revenue ?? 0),
+          cogs: Number(r.cogs ?? 0),
+        })),
+        returned.map((r) => ({
+          returnId: r.returnId,
+          restock: Boolean(r.restock),
+          returnedQuantity: Number(r.returnedQuantity),
+          soldQuantity: Number(r.soldQuantity),
+          lineTotal: Number(r.lineTotal),
+          costPrice: r.costPrice === null ? null : Number(r.costPrice),
+          productId: r.productId,
+          name: r.name,
+          category: r.category ?? null,
+        })),
+      )
     } catch (error) {
       return this.handleServiceError('getSalesByProduct', error, { businessId })
     }
@@ -1338,15 +1551,32 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<SalesByPaymentRow[]> {
     try {
+      // Money in by method, net of money handed back (ruling R4). Payments count on the
+      // day of their sale; a refund comes off the day it was paid out. A refunded or partly
+      // refunded sale still counts; a voided one never does.
       const { where, params } = this.rangeWhere(query)
       params[0] = businessId
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+      const refundDay = `(COALESCE(sp.recorded_at, sp.created_at) AT TIME ZONE 'UTC')::date`
+      const refundConds: string[] = []
+      let index = 1
+      if (query.dateFrom) refundConds.push(`${refundDay} >= $${++index}`)
+      if (query.dateTo) refundConds.push(`${refundDay} <= $${++index}`)
       const rows = (await this.salesRepo.manager.query(
-        `SELECT sp.method AS method,
-                COUNT(DISTINCT sp.sale_id)::int AS transactions,
-                COALESCE(SUM(sp.amount), 0) AS amount
-         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED'
-         GROUP BY sp.method
+        `SELECT x.method AS method,
+                COUNT(DISTINCT x.paid_sale_id)::int AS transactions,
+                COALESCE(SUM(x.amount), 0) AS amount
+         FROM (
+           SELECT sp.method AS method, sp.sale_id AS paid_sale_id, sp.amount AS amount
+           FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+           WHERE ${where} AND s.status IN (${statuses}) AND sp.kind <> 'REFUND'
+           UNION ALL
+           SELECT sp.method AS method, NULL::uuid AS paid_sale_id, -sp.amount AS amount
+           FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+           WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status <> 'VOIDED'
+             AND sp.kind = 'REFUND'${refundConds.length ? ` AND ${refundConds.join(' AND ')}` : ''}
+         ) x
+         GROUP BY x.method
          ORDER BY amount DESC`,
         params,
       )) as Array<{ method: string; transactions: number; amount: string }>
@@ -1371,41 +1601,44 @@ export class SalesService {
     try {
       const { where, params } = this.rangeWhere(query)
       params[0] = businessId
+      // Voids and the period's returns together (ruling R19).
+      const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
       const byReason = (await this.salesRepo.manager.query(
         `SELECT s.void_reason AS reason, COUNT(*)::int AS count, COALESCE(SUM(s.total_amount), 0) AS amount
          FROM sales s WHERE ${where} AND s.status = 'VOIDED'
-         GROUP BY s.void_reason ORDER BY amount DESC`,
+         GROUP BY s.void_reason`,
         params,
       )) as Array<{ reason: string | null; count: number; amount: string }>
       const byCashier = (await this.salesRepo.manager.query(
         `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
                 COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
-                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales
+                COALESCE(SUM(CASE WHEN ${sold} THEN s.total_amount ELSE 0 END), 0) AS sales
          FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
-         WHERE ${where} AND s.status IN ('VOIDED', 'COMPLETED')
-         GROUP BY s.cashier_id, u.name
-         HAVING SUM(CASE WHEN s.status = 'VOIDED' THEN 1 ELSE 0 END) > 0
-         ORDER BY refunds DESC`,
+         WHERE ${where}
+         GROUP BY s.cashier_id, u.name`,
         params,
       )) as Array<{ cashierId: string; name: string; refunds: string; sales: string }>
       const [gross] = (await this.salesRepo.manager.query(
-        `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+        `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND ${sold}`,
         params,
       )) as Array<{ gross: string }>
-      return {
-        byReason: byReason.map((r) => ({
+      const returned = await loadPeriodReturnLines(this.salesRepo.manager, businessId, query)
+      return refundsReport({
+        voidsByReason: byReason.map((r) => ({
           reason: r.reason ?? null,
           count: Number(r.count ?? 0),
-          amount: toWholeXaf(Number(r.amount ?? 0)),
+          amount: Number(r.amount ?? 0),
         })),
-        byCashier: byCashier.map((r) => ({
+        returnsByReason: returnTotalsBy(returned, (line) => line.reason),
+        voidsByCashier: byCashier.map((r) => ({
           cashierId: r.cashierId,
           name: r.name || '—',
-          refunds: toWholeXaf(Number(r.refunds ?? 0)),
-          sales: toWholeXaf(Number(r.sales ?? 0)),
+          refunds: Number(r.refunds ?? 0),
+          sales: Number(r.sales ?? 0),
         })),
-        grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
-      }
+        returnsByCashier: returnsByCashier(returned),
+        grossSales: Number(gross?.gross ?? 0),
+      })
     } catch (error) {
       return this.handleServiceError('getRefundsSummary', error, { businessId })
     }
@@ -1417,20 +1650,10 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<{ revenue: number; cogs: number }> {
     try {
-      // Financial (feeds the P&L) → range by posting_date (BIZ-5.4).
-      const { where, params } = this.rangeWhere(query, 'financial')
-      params[0] = businessId
-      const [row] = (await this.salesRepo.manager.query(
-        `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
-                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
-         FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
-        params,
-      )) as Array<{ revenue: string; cogs: string }>
-      return {
-        revenue: toWholeXaf(Number(row?.revenue ?? 0)),
-        cogs: toWholeXaf(Number(row?.cogs ?? 0)),
-      }
+      // Financial (feeds the P&L) → ranged by posting_date (BIZ-5.4). Net of the refunds made
+      // in the period (ruling R4); the rule is @biztrack/domain's.
+      const { revenue, cogs } = await loadNetSalesProfit(this.salesRepo.manager, businessId, query)
+      return { revenue, cogs }
     } catch (error) {
       return this.handleServiceError('getGrossProfit', error, { businessId })
     }
@@ -1444,11 +1667,7 @@ export class SalesService {
     context?: AuditContext,
   ) {
     try {
-      if (
-        ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
-          user.role as BusinessMemberRole,
-        )
-      ) {
+      if (!staffMay(user.role, 'SALE_VOID')) {
         throw new AppForbiddenException(
           await this.i18n.translate('errors.sales_void_forbidden'),
           'FORBIDDEN',
@@ -1465,14 +1684,24 @@ export class SalesService {
           )
         }
 
-        if (sale.status === SaleStatus.VOIDED) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.already_voided', {
-              args: { saleNumber: sale.saleNumber },
-            }),
-            'ALREADY_VOIDED',
-          )
+        // A void cancels what is still sold (@biztrack/domain): a partly refunded sale is
+        // voided only for the balance left after its refunds, and a fully refunded sale
+        // cannot be voided at all.
+        const voidDecision = await this.decideVoid(manager, sale)
+        if (!voidDecision.ok) {
+          throw voidDecision.code === 'FULLY_REFUNDED'
+            ? new AppBadRequestException(
+                'A fully refunded sale cannot be voided.',
+                'SALE_FULLY_REFUNDED',
+              )
+            : new AppBadRequestException(
+                await this.i18n.translate('errors.already_voided', {
+                  args: { saleNumber: sale.saleNumber },
+                }),
+                'ALREADY_VOIDED',
+              )
         }
+        const voidLines = this.voidedItems(sale.items ?? [], voidDecision.lines)
 
         const saleRepo = manager.getRepository(Sale)
         await saleRepo.update(sale.id, {
@@ -1490,23 +1719,29 @@ export class SalesService {
           await this.expandSaleItemsForInventory(
             manager,
             businessId,
-            (sale.items ?? []).map((item) => ({
+            voidLines.map(({ item, quantity }) => ({
               productId: item.productId,
               variantId: item.variantId ?? null,
               productName: item.productName,
-              quantity: item.quantity,
+              quantity,
             })),
           ),
           manager,
         )
 
-        await this.releaseSerialUnitsForVoid(manager, businessId, sale.items ?? [])
+        await this.releaseSerialUnitsForVoid(
+          manager,
+          businessId,
+          voidLines.map(({ item }) => item),
+          { saleId: sale.id, saleNumber: sale.saleNumber, userId: user.sub },
+        )
 
         await this.dailySummaryService.decrementForVoid(
           sale,
           sale.items ?? [],
           sale.payments ?? [],
           manager,
+          voidDecision.balance,
         )
 
         await this.debtsService.writeOffSourceDebt(manager, {
@@ -1649,6 +1884,12 @@ export class SalesService {
    */
   async refund(id: string, businessId: string, user: JwtPayload, input: RefundSaleInput) {
     try {
+      if (!staffMay(user.role, 'SALE_REFUND')) {
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.staff_action_forbidden'),
+          'STAFF_ACTION_FORBIDDEN',
+        )
+      }
       await this.dataSource.transaction(async (manager) => {
         const sale = await this.findSaleDetailBy('sale.id = :id', { id, businessId }, manager)
         if (!sale) {
@@ -1662,60 +1903,60 @@ export class SalesService {
         }
 
         const saleItems = sale.items ?? []
-        // Resolve returned lines: explicit selection, else the whole sale (full return).
-        const returnedLines =
-          input.items && input.items.length > 0
-            ? input.items.map((r) => {
-                const item = saleItems.find((si) => si.id === r.saleItemId)
-                if (!item) {
-                  throw new AppBadRequestException(
-                    'Returned line does not belong to this sale.',
-                    'RETURN_ITEM_NOT_FOUND',
-                  )
-                }
-                return {
-                  item,
-                  quantity: Math.min(this.roundQuantity(r.quantity), item.quantity),
-                  serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
-                }
-              })
-            : saleItems.map((item) => ({
-                item,
-                quantity: item.quantity,
-                serialUnitId: item.serialUnitId ?? null,
-              }))
-
-        const isFullReturn =
-          !input.items ||
-          input.items.length === 0 ||
-          saleItems.every((si) => {
-            const returnedQty = returnedLines
-              .filter((r) => r.item.id === si.id)
-              .reduce((sum, r) => sum + r.quantity, 0)
-            return returnedQty >= si.quantity
-          })
-
-        // Money to return: default to the goods value of returned lines, capped at amountPaid
-        // (fees are non-refundable by default). Unpaid COD returns refund 0 and write off the debt.
-        const goodsValue = toWholeXaf(
-          returnedLines.reduce((sum, r) => {
-            const perUnit =
-              r.item.quantity > 0 ? r.item.lineTotal / r.item.quantity : r.item.lineTotal
-            return sum + perUnit * r.quantity
-          }, 0),
-        )
-        const requested = input.amount != null ? toWholeXaf(input.amount) : goodsValue
-        const moneyRefund = toWholeXaf(Math.min(Math.max(0, requested), sale.amountPaid))
+        // What comes back, what it is worth and what money is returned is decided by
+        // @biztrack/domain (the same decision desktop makes offline).
+        const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
+        // What the customer still owes on the sale: returned goods reduce it before any
+        // money is handed back (ruling R10).
+        const owed = await this.debtsService.sourceDebtBalance(manager, {
+          businessId,
+          sourceType: DebtSource.SALE,
+          sourceId: sale.id,
+        })
+        const decision = decideSaleRefund({
+          items: saleItems.map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            lineTotal: item.lineTotal,
+            returnedQuantity: returnedBefore.get(item.id) ?? 0,
+          })),
+          returns: input.items,
+          requestedAmount: input.amount,
+          amountPaid: sale.amountPaid + owed.paid,
+          outstandingBalance: owed.outstanding,
+        })
+        if (!decision.ok) {
+          throw decision.code === 'RETURN_ITEM_NOT_FOUND'
+            ? new AppBadRequestException(
+                'Returned line does not belong to this sale.',
+                'RETURN_ITEM_NOT_FOUND',
+              )
+            : new AppBadRequestException('Select at least one item to return.', 'NOTHING_TO_RETURN')
+        }
+        const returnedLines = decision.lines.map((line) => {
+          const item = saleItems.find((si) => si.id === line.saleItemId)!
+          const requested = line.requestIndex === null ? null : input.items?.[line.requestIndex]
+          return {
+            item,
+            quantity: line.quantity,
+            serialUnitId: requested?.serialUnitId ?? item.serialUnitId ?? null,
+          }
+        })
+        const isFullReturn = decision.isFullReturn
+        const moneyRefund = decision.refundAmount
         const restock = input.restock !== false
         const now = new Date()
 
         const returnId = randomUUID()
         const returnRepo = manager.getRepository(SaleReturn)
+        // The refund is booked on the trading day it is made, not the day of the sale.
+        const returnBusinessDate = await this.calendar.businessDateFor(businessId, now, null)
         await returnRepo.save(
           returnRepo.create({
             id: returnId,
             saleId: sale.id,
             businessId,
+            businessDate: returnBusinessDate,
             onlineOrderId: sale.onlineOrderId ?? null,
             reason: input.reason?.trim() || null,
             restock,
@@ -1777,15 +2018,42 @@ export class SalesService {
             returnedLines
               .filter((r) => r.serialUnitId)
               .map((r) => ({ serialUnitId: r.serialUnitId })),
+            { saleId: sale.id, saleNumber: sale.saleNumber, userId: user.sub },
           )
         }
+
+        // The refund comes off today's revenue and, for restocked goods, cost (ruling R4).
+        await this.dailySummaryService.applyRefund(
+          businessId,
+          now.toISOString().slice(0, 10),
+          refundProfitImpact({
+            restock,
+            lines: returnedLines.map((r) => ({
+              returnedQuantity: r.quantity,
+              soldQuantity: r.item.quantity,
+              lineTotal: r.item.lineTotal,
+              costPrice: r.item.costPrice ?? null,
+            })),
+          }),
+          manager,
+        )
 
         const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
         await manager.getRepository(Sale).update(sale.id, {
           amountPaid: settlement.amountPaid,
           creditAmount: settlement.creditAmount,
-          status: isFullReturn ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED,
+          status: decision.status,
         })
+
+        // A partial return takes the goods off what is still owed (ruling R10).
+        if (!isFullReturn) {
+          await this.debtsService.reduceSourceDebt(manager, {
+            businessId,
+            sourceType: DebtSource.SALE,
+            sourceId: sale.id,
+            amount: decision.debtReduction,
+          })
+        }
 
         // A full return cancels any outstanding receivable — the goods came back.
         if (isFullReturn) {
@@ -1805,20 +2073,58 @@ export class SalesService {
     }
   }
 
+  /** Load what a void needs and let @biztrack/domain decide it. */
+  private async decideVoid(manager: EntityManager, sale: Sale) {
+    const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
+    const refunded = await loadSaleRefundImpact(manager, sale.id)
+    return decideSaleVoid({
+      status: sale.status,
+      items: (sale.items ?? []).map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        lineTotal: item.lineTotal,
+        costPrice: item.costPrice ?? null,
+        returnedQuantity: returnedBefore.get(item.id) ?? 0,
+      })),
+      refundedRevenue: refunded.revenue,
+    })
+  }
+
+  /** Pair each voided line with its sale item. */
+  private voidedItems(items: SaleItem[], lines: Array<{ saleItemId: string; quantity: number }>) {
+    return lines.map((line) => ({
+      item: items.find((item) => item.id === line.saleItemId)!,
+      quantity: line.quantity,
+    }))
+  }
+
+  /** Quantity already returned per sale item, across every return recorded for the sale. */
+  private async returnedQuantityByItem(
+    manager: EntityManager,
+    saleId: string,
+  ): Promise<Map<string, number>> {
+    const rows = await manager
+      .getRepository(SaleReturnItem)
+      .createQueryBuilder('returnItem')
+      .innerJoin(SaleReturn, 'saleReturn', 'saleReturn.id = returnItem.saleReturnId')
+      .where('saleReturn.saleId = :saleId', { saleId })
+      .select('returnItem.saleItemId', 'saleItemId')
+      .addSelect('SUM(returnItem.quantity)', 'quantity')
+      .groupBy('returnItem.saleItemId')
+      .getRawMany<{ saleItemId: string; quantity: string | number }>()
+    return new Map(rows.map((row) => [row.saleItemId, Number(row.quantity)]))
+  }
+
   /** Recompute a sale's paid/credit from its signed payment ledger: Σ(PAYMENT) − Σ(REFUND). */
   private async recomputeSaleSettlement(
     manager: EntityManager,
     saleId: string,
     totalAmount: number,
   ): Promise<{ amountPaid: number; creditAmount: number }> {
-    const rows = await manager.getRepository(SalePayment).find({ where: { saleId } })
-    const net = rows.reduce(
-      (sum, p) => sum + (p.kind === SalePaymentKind.REFUND ? -Number(p.amount) : Number(p.amount)),
-      0,
-    )
-    const amountPaid = toWholeXaf(Math.max(0, net))
-    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
-    return { amountPaid, creditAmount }
+    const entries = await manager.getRepository(SalePayment).find({ where: { saleId } })
+    // Goods that came back are no longer owed for (ruling R9).
+    const returned = await loadSaleRefundImpact(manager, saleId)
+    return settleSaleFromLedger({ totalAmount, entries, returnedGoodsValue: returned.revenue })
   }
 
   async getDailySummary(businessId: string, date?: string): Promise<DailySalesSummary> {
@@ -2105,6 +2411,12 @@ export class SalesService {
     manager: EntityManager,
     businessId: string,
     dto: Pick<SaleComputationInput, 'items'>,
+    /**
+     * `allowUnavailableSerials`: accept a serial unit that is no longer available (already
+     * sold elsewhere). Used for sales synced from an offline till (ruling R3); the conflict
+     * is flagged when the unit is marked.
+     */
+    options?: { allowUnavailableSerials?: boolean },
   ) {
     const ids = [...new Set(dto.items.map((item) => item.productId))]
     const products = await manager.getRepository(Product).find({
@@ -2208,10 +2520,12 @@ export class SalesService {
         )
       }
       const unit = serialUnitsById.get(item.serialUnitId)
+      const available =
+        unit?.status === SerialUnitStatus.IN_STOCK || unit?.status === SerialUnitStatus.RESERVED
       if (
         !unit ||
         unit.productId !== product.id ||
-        (unit.status !== SerialUnitStatus.IN_STOCK && unit.status !== SerialUnitStatus.RESERVED)
+        (!available && !options?.allowUnavailableSerials)
       ) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.serial_unit_unavailable'),
@@ -2257,12 +2571,6 @@ export class SalesService {
     const products = await manager.getRepository(Product).find({
       where: { id: In(productIds), businessId },
     })
-    const typeById = new Map(products.map((product) => [product.id, product.productType]))
-    // Serialised products have no inventory_levels row — stock is the unit count,
-    // handled by marking the serial unit SOLD, so they're excluded from deduction.
-    const serializedIds = new Set(
-      products.filter((product) => product.isSerialized).map((product) => product.id),
-    )
     const compositeIds = products
       .filter((product) => product.productType === ProductType.COMPOSITE)
       .map((product) => product.id)
@@ -2278,32 +2586,21 @@ export class SalesService {
         componentsByBundle.set(component.bundleProductId, list)
       }
     }
+    // The components themselves, to know which of them hold a stock level.
+    const componentIds = [
+      ...new Set([...componentsByBundle.values()].flat().map((c) => c.componentProductId)),
+    ].filter((id) => !productIds.includes(id))
+    const componentProducts = componentIds.length
+      ? await manager.getRepository(Product).find({ where: { id: In(componentIds), businessId } })
+      : []
+    const productById = new Map([...products, ...componentProducts].map((p) => [p.id, p]))
 
-    const expanded: Array<{
-      productId: string
-      variantId?: string | null
-      productName: string
-      quantity: number
-      movementId?: string | null
-    }> = []
-    for (const line of lines) {
-      if (serializedIds.has(line.productId)) {
-        continue
-      }
-      if (typeById.get(line.productId) === ProductType.COMPOSITE) {
-        for (const component of componentsByBundle.get(line.productId) ?? []) {
-          expanded.push({
-            productId: component.componentProductId,
-            variantId: null,
-            productName: line.productName,
-            quantity: component.quantity * line.quantity,
-          })
-        }
-      } else {
-        expanded.push(line)
-      }
-    }
-    return expanded
+    // Which levels the lines change (@biztrack/domain saleStockLines, as the till): a bundle
+    // takes from its components, a serialized product's units carry its stock.
+    return saleStockLines(lines, {
+      product: (id) => productById.get(id),
+      components: (id) => componentsByBundle.get(id) ?? [],
+    })
   }
 
   /** Mark a sale's serialised units SOLD (Phase 3G). Runs in the sale transaction. */
@@ -2312,9 +2609,23 @@ export class SalesService {
     businessId: string,
     saleId: string,
     customerId: string | null,
-    items: Array<{ id: string; serialUnitId?: string | null }>,
-  ): Promise<void> {
+    items: Array<{
+      id: string
+      productId: string
+      variantId?: string | null
+      serialUnitId?: string | null
+      movementId?: string | null
+    }>,
+    ledger: { saleNumber: string; userId: string | null },
+    /** `tolerateUnavailable`: do not reject when a unit is already taken; return its id. */
+    options?: { tolerateUnavailable?: boolean },
+  ): Promise<string[]> {
     const repo = manager.getRepository(ProductSerialUnit)
+    const unavailable: string[] = []
+    const sold = new Map<
+      string,
+      { productId: string; variantId: string | null; n: number; movementId?: string | null }
+    >()
     for (const item of items) {
       if (!item.serialUnitId) continue
       const result = await repo.update(
@@ -2334,12 +2645,40 @@ export class SalesService {
         },
       )
       if (!result.affected) {
-        throw new AppBadRequestException(
-          await this.i18n.translate('errors.serial_unit_unavailable'),
-          'SERIAL_UNIT_UNAVAILABLE',
-        )
+        if (!options?.tolerateUnavailable) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.serial_unit_unavailable'),
+            'SERIAL_UNIT_UNAVAILABLE',
+          )
+        }
+        unavailable.push(item.serialUnitId)
+        continue
       }
+      const key = `${item.productId}:${item.variantId ?? ''}`
+      const group = sold.get(key) ?? {
+        productId: item.productId,
+        variantId: item.variantId ?? null,
+        n: 0,
+        movementId: item.movementId,
+      }
+      group.n += 1
+      sold.set(key, group)
     }
+    // The stock movement the till writes for the same sale (its units are its stock).
+    for (const group of sold.values()) {
+      await this.inventoryService.recordSerialMovement(manager, businessId, {
+        productId: group.productId,
+        variantId: group.variantId,
+        change: -group.n,
+        type: MovementType.SALE,
+        referenceType: 'sale',
+        referenceId: saleId,
+        notes: `Sale ${ledger.saleNumber}`,
+        performedById: ledger.userId,
+        movementId: group.movementId,
+      })
+    }
+    return unavailable
   }
 
   /** Return a voided sale's serialised units to IN_STOCK (Phase 3G). */
@@ -2347,11 +2686,14 @@ export class SalesService {
     manager: EntityManager,
     businessId: string,
     items: Array<{ serialUnitId?: string | null }>,
+    ledger: { saleId: string; saleNumber: string; userId: string | null },
   ): Promise<void> {
     const repo = manager.getRepository(ProductSerialUnit)
+    const back = new Map<string, { productId: string; variantId: string | null; n: number }>()
     for (const item of items) {
       if (!item.serialUnitId) continue
-      await repo.update(
+      const unit = await repo.findOne({ where: { id: item.serialUnitId, businessId } })
+      const result = await repo.update(
         { id: item.serialUnitId, businessId, status: SerialUnitStatus.SOLD },
         {
           status: SerialUnitStatus.IN_STOCK,
@@ -2361,6 +2703,28 @@ export class SalesService {
           customerId: null,
         },
       )
+      if (!result.affected || !unit) continue
+      const key = `${unit.productId}:${unit.variantId ?? ''}`
+      const group = back.get(key) ?? {
+        productId: unit.productId,
+        variantId: unit.variantId ?? null,
+        n: 0,
+      }
+      group.n += 1
+      back.set(key, group)
+    }
+    // The stock movement the till writes for the same void or return.
+    for (const group of back.values()) {
+      await this.inventoryService.recordSerialMovement(manager, businessId, {
+        productId: group.productId,
+        variantId: group.variantId,
+        change: group.n,
+        type: MovementType.VOID_REVERSAL,
+        referenceType: 'sale_void',
+        referenceId: ledger.saleId,
+        notes: `Void ${ledger.saleNumber}`,
+        performedById: ledger.userId,
+      })
     }
   }
 
@@ -2399,11 +2763,25 @@ export class SalesService {
     dto: SaleComputationInput,
   ) {
     const productsById = new Map(products.map((product) => [product.id, product]))
+    // Pricing is @biztrack/domain's priceSale — the same function every runtime runs — so the
+    // totals stored here are the ones the till computed. This method only attaches the
+    // catalogue context (product, variant, serial unit, cost) to each priced line.
+    const pricing = priceSale({
+      lines: dto.items.map((input) => ({
+        quantity: roundQuantity(input.quantity),
+        unitPrice: input.unitPrice,
+        unitPriceListed: input.unitPriceListed,
+        discountAmount: input.discountAmount,
+        reasonCode: input.reasonCode,
+        reasonNote: input.reasonNote,
+      })),
+      cartDiscount: dto.discountAmount,
+      charges: dto.chargesAmount,
+    })
     const items: ComputedSaleItem[] = []
-    let subtotal = 0
     let priceDriftWarning = false
 
-    for (const input of dto.items) {
+    dto.items.forEach((input, index) => {
       const product = productsById.get(input.productId)
 
       if (!product) {
@@ -2414,54 +2792,18 @@ export class SalesService {
         )
       }
 
-      const quantity = this.roundQuantity(input.quantity)
-      const cartDiscountAlloc = 0
-      // BIZ-1.2 OVERRIDE model: rung at the catalogue (listed) price, with any bargain
-      // captured as a line discount. When the charged price is below listed, store
-      // unit_price = listed and fold the gap into discount_amount + an OVERRIDE row, so
-      // discount_amount always reconciles with the line's discount rows. A charged price
-      // at/above listed keeps that price (a markup) with no negative discount.
-      const chargedRung = toWholeXaf(input.unitPrice)
-      const unitPriceListed = toWholeXaf(input.unitPriceListed ?? input.unitPrice)
-      const explicitDiscount = toWholeXaf(input.discountAmount ?? 0)
-      const overrideGap =
-        chargedRung < unitPriceListed ? toWholeXaf((unitPriceListed - chargedRung) * quantity) : 0
-      const unitPrice = overrideGap > 0 ? unitPriceListed : chargedRung
-      const discountAmount = toWholeXaf(overrideGap + explicitDiscount)
-      const lineDiscounts: DerivedLineDiscount[] = []
-      if (overrideGap > 0) {
-        lineDiscounts.push({
-          discountType: 'OVERRIDE',
-          amount: overrideGap,
-          description: 'Negotiated price',
-          reasonCode: input.reasonCode ?? 'NEGOTIATED',
-          reasonNote: input.reasonNote ?? null,
-        })
-      }
-      if (explicitDiscount > 0) {
-        lineDiscounts.push({
-          discountType: 'FIXED_AMOUNT',
-          amount: explicitDiscount,
-          description: 'Line discount',
-          reasonCode: null,
-          reasonNote: null,
-        })
-      }
-      const lineTotal = Math.max(
-        0,
-        toWholeXaf(unitPrice * quantity - discountAmount - cartDiscountAlloc),
-      )
+      const priced = pricing.lines[index]!
+      const variant = input.variantId ? variantsById.get(input.variantId) : undefined
+      // A variant costs its own cost when it has one (@biztrack/domain), as on the till.
       const costPrice =
-        input.costPrice !== undefined ? toWholeXaf(input.costPrice) : (product.costPrice ?? null)
+        input.costPrice !== undefined ? toWholeXaf(input.costPrice) : variantCost(product, variant)
 
       // Drift reflects what the cashier actually charged, not the rung listed price.
-      if (this.hasPriceDrift(chargedRung, product.sellingPrice)) {
+      if (hasPriceDrift(priced.chargedUnitPrice, product.sellingPrice)) {
         priceDriftWarning = true
       }
 
-      const variant = input.variantId ? variantsById.get(input.variantId) : undefined
       const serialUnit = input.serialUnitId ? serialUnitsById.get(input.serialUnitId) : undefined
-      subtotal = toWholeXaf(subtotal + lineTotal)
       items.push({
         product,
         // Serialised lines have no explicit variantId — derive it from the serial unit so the
@@ -2470,51 +2812,28 @@ export class SalesService {
         variantName: variant?.name ?? input.variantName ?? null,
         serialUnitId: serialUnit?.id ?? input.serialUnitId ?? null,
         serialNumber: serialUnit?.serialNumber ?? input.serialNumber ?? null,
-        quantity,
-        unitPrice,
-        unitPriceListed,
-        cartDiscountAlloc,
-        discountAmount,
-        lineTotal,
+        quantity: priced.quantity,
+        unitPrice: priced.unitPrice,
+        unitPriceListed: priced.unitPriceListed,
+        cartDiscountAlloc: priced.cartDiscountAlloc,
+        discountAmount: priced.discountAmount,
+        lineTotal: priced.lineTotal,
         costPrice,
-        lineDiscounts,
+        lineDiscounts: priced.lineDiscounts.map((discount) => ({
+          ...discount,
+          description: discount.discountType === 'OVERRIDE' ? 'Negotiated price' : 'Line discount',
+        })),
       })
-    }
-
-    const saleDiscountAmount = Math.min(toWholeXaf(dto.discountAmount ?? 0), subtotal)
-    const saleChargesAmount = toWholeXaf(Math.max(0, dto.chargesAmount ?? 0))
-    const totalAmount = Math.max(0, toWholeXaf(subtotal - saleDiscountAmount + saleChargesAmount))
-
-    // BIZ-1.3: allocate the cart-level discount across lines (weight = line total),
-    // rounding remainder to the largest line, and fold each share into that line's
-    // total. Σ(cart_discount_alloc) === saleDiscountAmount, so totals never drift.
-    if (saleDiscountAmount > 0 && items.length > 0) {
-      const allocations = allocateProRata(
-        saleDiscountAmount,
-        items.map((it) => it.lineTotal),
-      )
-      items.forEach((it, i) => {
-        it.cartDiscountAlloc = allocations[i] ?? 0
-        it.lineTotal = Math.max(0, toWholeXaf(it.lineTotal - it.cartDiscountAlloc))
-      })
-    }
+    })
 
     return {
       items,
-      subtotal,
-      saleDiscountAmount,
-      saleChargesAmount,
-      totalAmount,
+      subtotal: pricing.subtotal,
+      saleDiscountAmount: pricing.discountAmount,
+      saleChargesAmount: pricing.chargesAmount,
+      totalAmount: pricing.totalAmount,
       priceDriftWarning,
     }
-  }
-
-  private hasPriceDrift(unitPrice: number, currentSellingPrice: number) {
-    if (currentSellingPrice <= 0) {
-      return unitPrice > 0
-    }
-
-    return Math.abs(unitPrice - currentSellingPrice) / currentSellingPrice > 0.1
   }
 
   private async findSaleDetailBy(
@@ -2548,6 +2867,11 @@ export class SalesService {
     if (!sale || sale.status === SaleStatus.VOIDED) {
       return
     }
+    // Same rule as an online void: only the balance left after refunds is voided, and a
+    // fully refunded sale has nothing left to void, so it stays as it is.
+    const voidDecision = await this.decideVoid(manager, sale)
+    if (!voidDecision.ok) return
+    const voidLines = this.voidedItems(sale.items ?? [], voidDecision.lines)
 
     const voidedAt = this.parseOptionalDate(payload.voidedAt) ?? new Date()
     const voidedById = this.isUuid(payload.voidedById) ? payload.voidedById : null
@@ -2570,23 +2894,29 @@ export class SalesService {
       await this.expandSaleItemsForInventory(
         manager,
         businessId,
-        (sale.items ?? []).map((item) => ({
+        voidLines.map(({ item, quantity }) => ({
           productId: item.productId,
           variantId: item.variantId ?? null,
           productName: item.productName,
-          quantity: item.quantity,
+          quantity,
         })),
       ),
       manager,
     )
 
-    await this.releaseSerialUnitsForVoid(manager, businessId, sale.items ?? [])
+    await this.releaseSerialUnitsForVoid(
+      manager,
+      businessId,
+      voidLines.map(({ item }) => item),
+      { saleId: sale.id, saleNumber: sale.saleNumber, userId: voidedById ?? sale.cashierId },
+    )
 
     await this.dailySummaryService.decrementForVoid(
       sale,
       sale.items ?? [],
       sale.payments ?? [],
       manager,
+      voidDecision.balance,
     )
 
     await this.debtsService.writeOffSourceDebt(manager, {
@@ -2617,6 +2947,8 @@ export class SalesService {
     businessId: string,
     saleId: string,
     payload: SaleSyncPayload,
+    /** Collects the review flags this refund raises (ruling R1); the caller stores them. */
+    flagDrafts: ReviewFlagDraft[],
   ) {
     const returns = payload.returns ?? []
     if (returns.length === 0) return
@@ -2633,21 +2965,91 @@ export class SalesService {
       // Idempotent: this return already landed (a prior sync, or it pulled back down).
       if (await returnRepo.findOne({ where: { id: ret.id } })) continue
 
-      const returnedLines = (ret.items ?? [])
-        .map((r) => {
-          const item = saleItems.find((si) => si.id === r.saleItemId)
-          if (!item) return null
-          return {
-            item,
-            quantity: Math.min(this.roundQuantity(r.quantity), item.quantity),
-            serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
-          }
-        })
-        .filter((r): r is { item: SaleItem; quantity: number; serialUnitId: string | null } => {
-          return !!r && r.quantity > 0
-        })
-      if (returnedLines.length === 0) continue
+      // Ruling R1: the refund already happened at the till. Which lines the server can
+      // apply is decided by the same rule as an online refund (what is left of each line);
+      // the money is recorded as the till handed it back, and any disagreement is flagged.
+      const requestedLines = ret.items ?? []
+      const knownLines = requestedLines.filter((r) =>
+        saleItems.some((si) => si.id === r.saleItemId),
+      )
+      const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
+      const owed = await this.debtsService.sourceDebtBalance(manager, {
+        businessId,
+        sourceType: DebtSource.SALE,
+        sourceId: sale.id,
+      })
+      // Everything received for the sale: at the till and on its debt.
+      const paidBefore =
+        (await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)).amountPaid +
+        owed.paid
+      const tillRefundAmount = toWholeXaf(ret.refundAmount ?? 0)
+      const decision =
+        knownLines.length > 0
+          ? decideSaleRefund({
+              items: saleItems.map((item) => ({
+                id: item.id,
+                quantity: item.quantity,
+                lineTotal: item.lineTotal,
+                returnedQuantity: returnedBefore.get(item.id) ?? 0,
+              })),
+              returns: knownLines,
+              requestedAmount: tillRefundAmount,
+              amountPaid: paidBefore,
+              outstandingBalance: owed.outstanding,
+            })
+          : null
+      const returnedLines =
+        decision && decision.ok
+          ? decision.lines.map((line) => {
+              const item = saleItems.find((si) => si.id === line.saleItemId)!
+              const requested = knownLines[line.requestIndex ?? -1]
+              return {
+                id: requested?.id ?? randomUUID(),
+                item,
+                quantity: line.quantity,
+                serialUnitId: requested?.serialUnitId ?? item.serialUnitId ?? null,
+              }
+            })
+          : []
+      // Nothing came back and no money moved: there is nothing to record.
+      if (returnedLines.length === 0 && tillRefundAmount <= 0) continue
 
+      flagDrafts.push(
+        ...reviewSyncedRefund({
+          saleId: sale.id,
+          returnId: ret.id,
+          tillRefundAmount,
+          amountPaid: paidBefore,
+          goodsValue: decision && decision.ok ? decision.goodsValue : 0,
+          tillQuantity: requestedLines.reduce((sum, r) => sum + roundQuantity(r.quantity), 0),
+          appliedQuantity: returnedLines.reduce((sum, r) => sum + r.quantity, 0),
+          unknownLineCount: requestedLines.length - knownLines.length,
+        }),
+      )
+
+      // The money the till handed back is a fact; the goods it did not pay back for come
+      // off what the customer still owes (ruling R10).
+      if (decision && decision.ok) {
+        await this.debtsService.reduceSourceDebt(manager, {
+          businessId,
+          sourceType: DebtSource.SALE,
+          sourceId: sale.id,
+          amount: returnDebtReduction({
+            goodsValue: decision.goodsValue,
+            cashRefunded: tillRefundAmount,
+            outstandingBalance: owed.outstanding,
+          }),
+        })
+      }
+
+      // The refund is booked on the day it happened at the till, not the day it synced.
+      const returnedAt = this.parseOptionalDate(ret.createdAt) ?? now
+      const returnBusinessDate = await this.calendar.resolveForSync(
+        businessId,
+        returnedAt,
+        ret.businessDate ?? null,
+        null,
+      )
       await returnRepo.save(
         returnRepo.create({
           id: ret.id,
@@ -2656,24 +3058,26 @@ export class SalesService {
           onlineOrderId: sale.onlineOrderId ?? null,
           reason: this.normalizeOptionalString(ret.reason) ?? null,
           restock: ret.restock !== false,
-          refundAmount: toWholeXaf(ret.refundAmount ?? 0),
+          refundAmount: tillRefundAmount,
           createdById: sale.cashierId,
+          businessDate: returnBusinessDate,
+          createdAt: returnedAt,
         }),
       )
-      await returnItemRepo.save(
-        (ret.items ?? [])
-          .filter((r) => returnedLines.some((rl) => rl.item.id === r.saleItemId))
-          .map((r) =>
+      if (returnedLines.length > 0) {
+        await returnItemRepo.save(
+          returnedLines.map((r) =>
             returnItemRepo.create({
-              id: r.id ?? randomUUID(),
+              id: r.id,
               saleReturnId: ret.id,
               businessId,
-              saleItemId: r.saleItemId,
-              quantity: this.roundQuantity(r.quantity),
+              saleItemId: r.item.id,
+              quantity: r.quantity,
               serialUnitId: r.serialUnitId ?? null,
             }),
           ),
-      )
+        )
+      }
 
       if (ret.refundPayment && ret.refundPayment.amount > 0) {
         if (!(await paymentRepo.findOne({ where: { id: ret.refundPayment.id } }))) {
@@ -2685,7 +3089,7 @@ export class SalesService {
               method: (ret.refundPayment.method as PaymentMethod) ?? PaymentMethod.CASH,
               amount: toWholeXaf(ret.refundPayment.amount),
               kind: SalePaymentKind.REFUND,
-              recordedAt: now,
+              recordedAt: returnedAt,
               recordedById: sale.cashierId,
               note: this.normalizeOptionalString(ret.reason) ?? 'Refund',
             }),
@@ -2693,7 +3097,23 @@ export class SalesService {
         }
       }
 
-      if (ret.restock !== false) {
+      // The refund comes off the revenue of the day it happened at the till (ruling R4).
+      await this.dailySummaryService.applyRefund(
+        businessId,
+        returnedAt.toISOString().slice(0, 10),
+        refundProfitImpact({
+          restock: ret.restock !== false,
+          lines: returnedLines.map((r) => ({
+            returnedQuantity: r.quantity,
+            soldQuantity: r.item.quantity,
+            lineTotal: r.item.lineTotal,
+            costPrice: r.item.costPrice ?? null,
+          })),
+        }),
+        manager,
+      )
+
+      if (ret.restock !== false && returnedLines.length > 0) {
         await this.inventoryService.reverseForVoidedSale(
           businessId,
           sale.id,
@@ -2717,14 +3137,23 @@ export class SalesService {
           returnedLines
             .filter((r) => r.serialUnitId)
             .map((r) => ({ serialUnitId: r.serialUnitId })),
+          { saleId: sale.id, saleNumber: sale.saleNumber, userId: sale.cashierId },
         )
       }
     }
 
-    // Recompute settlement from the signed payment ledger + set status authoritatively.
+    // Recompute settlement from the signed payment ledger. The status is decided here from
+    // the quantities returned across ALL of the sale's returns (ruling R5), not taken from
+    // the device: a second partial return that brings back the rest completes the sale.
     const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
-    const status =
-      payload.status === SaleStatus.REFUNDED ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED
+    const returnedByItem = await this.returnedQuantityByItem(manager, sale.id)
+    if (returnedByItem.size === 0) return
+    const status = saleReturnStatus(
+      saleItems.map((item) => ({
+        quantity: item.quantity,
+        returnedQuantity: returnedByItem.get(item.id) ?? 0,
+      })),
+    )
     await manager.getRepository(Sale).update(sale.id, {
       amountPaid: settlement.amountPaid,
       creditAmount: settlement.creditAmount,
@@ -2786,6 +3215,18 @@ export class SalesService {
     return trimmed ? trimmed : null
   }
 
+  private async isOnlineOrder(
+    manager: EntityManager,
+    businessId: string,
+    orderId: string,
+  ): Promise<boolean> {
+    const [row] = (await manager.query(
+      `SELECT 1 FROM online_orders WHERE id = $1 AND business_id = $2 LIMIT 1`,
+      [orderId, businessId],
+    )) as unknown[]
+    return !!row
+  }
+
   private async resolveSaleCreditContext(
     manager: EntityManager,
     businessId: string,
@@ -2793,15 +3234,18 @@ export class SalesService {
     totalAmount: number,
     amountPaid: number,
     expectedCreditAmount?: number | null,
+    collectedOnDelivery = false,
   ) {
     const customerId = this.normalizeOptionalUuid(rawCustomerId)
-    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
+    const { creditAmount } = settleSale({ totalAmount, payments: [{ amount: amountPaid }] })
+    const rejection = checkSaleCredit({
+      creditAmount,
+      hasCustomer: !!customerId,
+      expectedCreditAmount,
+      collectedOnDelivery,
+    })
 
-    if (
-      expectedCreditAmount !== undefined &&
-      expectedCreditAmount !== null &&
-      toWholeXaf(expectedCreditAmount) !== creditAmount
-    ) {
+    if (rejection === 'SALE_CREDIT_AMOUNT_MISMATCH') {
       throw new AppBadRequestException(
         'Sale credit amount does not match the unpaid balance.',
         'SALE_CREDIT_AMOUNT_MISMATCH',
@@ -2812,7 +3256,7 @@ export class SalesService {
       )
     }
 
-    if (creditAmount > 0 && !customerId) {
+    if (rejection === 'CUSTOMER_REQUIRED_FOR_CREDIT') {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.customer_contact_required_for_credit' as never),
         'CUSTOMER_CONTACT_REQUIRED_FOR_CREDIT',
@@ -2842,8 +3286,28 @@ export class SalesService {
     return SaleStatus.COMPLETED
   }
 
-  private roundQuantity(value: number) {
-    return Math.round(value * 1000) / 1000
+  /** A priced sale in the shape the discount rules take. */
+  private saleDiscountInput(computed: ReturnType<SalesService['computeSale']>) {
+    return {
+      lines: computed.items.map((it) => ({
+        discountAmount: it.discountAmount,
+        listedLineValue: toWholeXaf((it.unitPriceListed ?? it.unitPrice) * it.quantity),
+      })),
+      cartDiscount: computed.saleDiscountAmount,
+      subtotal: computed.subtotal,
+    }
+  }
+
+  /** Whether any line of a priced sale went below its cost; the charged unit price nets
+   * the line discount. */
+  private saleIsBelowCost(computed: ReturnType<SalesService['computeSale']>): boolean {
+    return isBelowCost(
+      computed.items.map((it) => ({
+        chargedUnitPrice:
+          it.quantity > 0 ? (it.unitPrice * it.quantity - it.discountAmount) / it.quantity : 0,
+        cost: it.costPrice,
+      })),
+    )
   }
 
   private resolveSyncCashierId(payload: SaleSyncPayload) {
@@ -2856,20 +3320,6 @@ export class SalesService {
     }
 
     throw new AppBadRequestException('Sale cashier is required.', 'SALE_CASHIER_REQUIRED')
-  }
-
-  private deriveStoredPaymentMethod(payments: Array<{ method: PaymentMethod }>): PaymentMethod {
-    const methods = [...new Set(payments.map((payment) => payment.method))]
-
-    if (methods.length === 0) {
-      return PaymentMethod.MIXED
-    }
-
-    if (methods.length === 1) {
-      return methods[0]!
-    }
-
-    return PaymentMethod.MIXED
   }
 
   private firstMobileMoneyReference(

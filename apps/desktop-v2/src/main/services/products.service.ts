@@ -1,3 +1,28 @@
+import {
+  buildProductSku,
+  catalogValue,
+  checkProductKind,
+  checkProductPrices,
+  checkProductSku,
+  checkSerialEdit,
+  checkSerialRetire,
+  decideSerialAdd,
+  findVariantComboClash,
+  findVariantSkuClash,
+  normalizeBarcode,
+  normalizeVariantSku,
+  planProductRemoval,
+  planVariantRemoval,
+  productKindToStore,
+  productStockFlags,
+  productTakesVariants,
+  serialBatch,
+  SKU_RANDOM_ALPHABET,
+  slugify,
+  uniqueSlug,
+  validateSerialNumber,
+  variantSignature,
+} from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -27,10 +52,12 @@ import {
   PRICE_EXPR,
   DISPLAY_PRICE_EXPR,
   STOCK_EXPR,
+  STOCK_STATUS_EXPR,
   effectiveStock as effectiveStockFn,
   movementCount as movementCountFn,
   recordStockMovement as recordStockMovementFn,
   setInventoryLevel as setInventoryLevelFn,
+  stockStatusWhere,
 } from './stock-ledger'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
@@ -69,6 +96,7 @@ interface ProductRow {
   reorder_point: number | null
   stock_quantity: number | null
   effective_stock: number | null
+  stock_status: 'OUT' | 'LOW' | 'IN'
   effective_price: number | null
   effective_cost: number | null
   has_variants: number
@@ -140,34 +168,19 @@ interface MovementRow {
 
 const OPENING_STOCK_NOTE = 'Opening stock recorded at product creation.'
 
-/** Stable signature of a variant = its sorted attribute-option ids. */
-function variantSignature(optionIds: string[]): string {
-  return [...optionIds].sort().join('|')
-}
-
 const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
    p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
    p.is_serialized, p.serial_type, p.warranty_months, p.unique_items,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
-   ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
+   ${STOCK_STATUS_EXPR} AS stock_status, ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) AS has_variants,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM = `products p
    LEFT JOIN product_categories c ON c.id = p.category_id
    LEFT JOIN brands b ON b.id = p.brand_id
    LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id`
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 140)
-}
 
 function productType(input: ProductInput): ProductType {
   if (input.isService) return 'SERVICE'
@@ -252,15 +265,7 @@ export class ProductsService {
       params.push(query.isActive ? 1 : 0)
     }
     if (query.stockStatus && query.stockStatus !== 'all') {
-      const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
-      const stock = STOCK_EXPR
-      if (query.stockStatus === 'out') {
-        where += ` AND p.track_inventory = 1 AND ${stock} <= 0`
-      } else if (query.stockStatus === 'low') {
-        where += ` AND p.track_inventory = 1 AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`
-      } else if (query.stockStatus === 'in') {
-        where += ` AND p.track_inventory = 1 AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`
-      }
+      where += ` AND p.track_inventory = 1 AND ${stockStatusWhere(query.stockStatus)}`
     }
 
     // Robust search: the product's name/sku/barcode, OR any variant's name/sku/barcode, OR any
@@ -429,7 +434,6 @@ export class ProductsService {
     }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
-    const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
     const stock = STOCK_EXPR
     const row = this.db.get<{
       totalSkus: number
@@ -444,16 +448,17 @@ export class ProductsService {
          COUNT(DISTINCT p.category_id) AS categories,
          COALESCE(SUM(COALESCE(${COST_EXPR}, 0) * ${stock}), 0) AS catalogValueCost,
          COALESCE(SUM(${PRICE_EXPR} * ${stock}), 0) AS retailValue,
-         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} > 0
-           AND ${thr} > 0 AND ${stock} <= ${thr} THEN 1 ELSE 0 END), 0) AS lowStock,
-         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${STOCK_STATUS_EXPR} = 'LOW' THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${STOCK_STATUS_EXPR} = 'OUT' THEN 1 ELSE 0 END), 0) AS outOfStock
        FROM products p WHERE p.business_id = ? AND p.is_deleted = 0`,
       [businessId],
     )
     if (!row) return empty
-    const blendedMarginPct =
-      row.retailValue > 0 ? ((row.retailValue - row.catalogValueCost) / row.retailValue) * 100 : 0
-    return { ...row, blendedMarginPct }
+    // @biztrack/domain catalogValue, as the server.
+    return {
+      ...row,
+      ...catalogValue({ costValue: row.catalogValueCost, retailValue: row.retailValue }),
+    }
   }
 
   create(input: ProductInput): LocalProduct {
@@ -463,9 +468,13 @@ export class ProductsService {
     const id = randomUUID()
     const now = new Date().toISOString()
     const type = productType(input)
-    const isService = type === 'SERVICE'
-    const tracks = !isService
+    this.assertPrices(input)
+    this.assertKind(type, input)
+    // Stock tracking by product type is @biztrack/domain's rule (R13), the server's.
+    const { isService, trackInventory: tracks } = productStockFlags(type, input.trackInventory)
     const currency = this.businessCurrency(businessId)
+    const sku = this.resolveSku(businessId, null, input.sku, null, input.categoryId ?? null)
+    const barcode = this.resolveBarcode(businessId, input.barcode, null)
     this.db.run(
       `INSERT INTO products
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
@@ -478,10 +487,10 @@ export class ProductsService {
         id,
         businessId,
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name),
         input.description?.trim() || null,
-        input.sku?.trim() || null,
-        input.barcode?.trim() || null,
+        sku,
+        barcode,
         input.sellingPrice,
         input.costPrice ?? null,
         currency,
@@ -512,7 +521,13 @@ export class ProductsService {
         now,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
+    this.enqueue(
+      id,
+      'UPSERT',
+      businessId,
+      this.payload(input, type, { sku, barcode, trackInventory: tracks }),
+      now,
+    )
     this.syncOpeningStock(id, businessId, now)
     this.onMutated()
     const created = this.getOne(id)!
@@ -526,14 +541,34 @@ export class ProductsService {
     return created
   }
 
-  update(id: string, input: ProductInput): LocalProduct {
+  update(id: string, changes: ProductInput): LocalProduct {
     const businessId = this.requireBusinessId()
-    this.assertUnit(input.unitOfMeasureId, businessId)
-    if (input.categoryId) this.assertCategorySelectable(input.categoryId, businessId)
+    this.assertUnit(changes.unitOfMeasureId, businessId)
+    if (changes.categoryId) this.assertCategorySelectable(changes.categoryId, businessId)
     const now = new Date().toISOString()
-    const type = productType(input)
-    const isService = type === 'SERVICE'
     const before = this.getOne(id)
+    // What kind the product stays is @biztrack/domain's productKindToStore (R12): fixed
+    // once it exists, as on the server.
+    const kind = productKindToStore(before ?? null, {
+      productType: productType(changes),
+      isSerialized: changes.isSerialized,
+      serialType: changes.serialType,
+    })
+    const input: ProductInput = {
+      ...changes,
+      productType: kind.productType,
+      isService: kind.productType === 'SERVICE',
+      isSerialized: kind.isSerialized,
+      serialType: kind.serialType as ProductInput['serialType'],
+    }
+    const type = productType(input)
+    this.assertPrices(input)
+    const { isService, trackInventory: tracks } = productStockFlags(
+      type,
+      input.trackInventory ?? before?.trackInventory,
+    )
+    const sku = this.resolveSku(businessId, before?.sku ?? null, input.sku, id, null)
+    const barcode = this.resolveBarcode(businessId, input.barcode, id)
     this.db.run(
       `UPDATE products SET
         name = ?, slug = ?, description = ?, sku = ?, barcode = ?, price = ?, cost_price = ?, tax_rate = ?,
@@ -545,16 +580,16 @@ export class ProductsService {
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name, id),
         input.description?.trim() || null,
-        input.sku?.trim() || null,
-        input.barcode?.trim() || null,
+        sku,
+        barcode,
         input.sellingPrice,
         input.costPrice ?? null,
         input.taxRate ?? 0,
         type,
         isService ? 1 : 0,
-        isService ? 0 : 1,
+        tracks ? 1 : 0,
         input.categoryId ?? null,
         input.brandId ?? null,
         input.modelId ?? null,
@@ -578,7 +613,13 @@ export class ProductsService {
         businessId,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
+    this.enqueue(
+      id,
+      'UPSERT',
+      businessId,
+      this.payload(input, type, { sku, barcode, trackInventory: tracks }),
+      now,
+    )
     this.onMutated()
     const after = this.getOne(id)!
     this.audit?.log({
@@ -665,13 +706,14 @@ export class ProductsService {
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
 
-    // Write off any remaining stock (ledger → 0). effectiveStock is 0 now, so
-    // recordStockMovement records before=stockBefore, after=0.
-    if (stockBefore > 0) {
+    // Write off any remaining stock (ledger → 0; @biztrack/domain planProductRemoval, as the
+    // server). effectiveStock is 0 now, so the movement records before=stockBefore, after=0.
+    const plan = planProductRemoval({ stock: stockBefore })
+    if (plan.writeOff > 0) {
       this.recordStockMovement(
         id,
         businessId,
-        -stockBefore,
+        -plan.writeOff,
         { referenceType: 'product', referenceId: id, notes: 'Product deleted' },
         now,
       )
@@ -943,23 +985,29 @@ export class ProductsService {
     businessId: string,
     entries: Array<{ sku: string | null; keepId?: string }>,
   ): void {
-    const seen = new Set<string>()
-    for (const e of entries) {
-      const sku = e.sku?.trim()
-      if (!sku) continue
-      if (seen.has(sku)) {
-        throw new Error(`The code "${sku}" is used by more than one variant. Codes must be unique.`)
-      }
-      seen.add(sku)
-      const dup = this.db.get<{ id: string }>(
-        `SELECT id FROM product_variants WHERE business_id = ? AND sku = ? AND is_deleted = 0 LIMIT 1`,
-        [businessId, sku],
+    const skus = [
+      ...new Set(entries.map((e) => normalizeVariantSku(e.sku)).filter((s): s is string => !!s)),
+    ]
+    if (skus.length === 0) return
+    const holders = this.db.query<{ id: string; sku: string }>(
+      `SELECT id, sku FROM product_variants
+        WHERE business_id = ? AND is_deleted = 0 AND sku IN (${skus.map(() => '?').join(', ')})`,
+      [businessId, ...skus],
+    )
+    // Whether a SKU clashes is @biztrack/domain's findVariantSkuClash, as on the server.
+    const clash = findVariantSkuClash(
+      entries.map((e) => ({ id: e.keepId, sku: e.sku })),
+      holders,
+    )
+    if (clash?.within) {
+      throw new Error(
+        `The code "${clash.sku}" is used by more than one variant. Codes must be unique.`,
       )
-      if (dup && dup.id !== e.keepId) {
-        throw new Error(
-          `The code "${sku}" is already used by another variant. Codes must be unique.`,
-        )
-      }
+    }
+    if (clash) {
+      throw new Error(
+        `The code "${clash.sku}" is already used by another variant. Codes must be unique.`,
+      )
     }
   }
 
@@ -969,6 +1017,11 @@ export class ProductsService {
   setVariants(productId: string, variants: VariantInput[]): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    if (variants.length > 0) {
+      const product = this.getOne(productId)
+      if (!product) throw new Error('Product not found.')
+      this.assertTakesVariants(product)
+    }
     const existing = this.listVariants(productId)
     const existingBySig = new Map(
       existing.map((v) => [variantSignature(v.options.map((o) => o.attributeOptionId)), v]),
@@ -976,7 +1029,7 @@ export class ProductsService {
     this.assertVariantSkusFree(
       businessId,
       variants.map((v) => ({
-        sku: v.sku ?? null,
+        sku: normalizeVariantSku(v.sku),
         keepId: existingBySig.get(variantSignature(v.options.map((o) => o.attributeOptionId)))?.id,
       })),
     )
@@ -996,7 +1049,7 @@ export class ProductsService {
             v.name,
             v.priceOverride ?? null,
             v.costPriceOverride ?? null,
-            v.sku ?? null,
+            normalizeVariantSku(v.sku),
             v.isActive === false ? 0 : 1,
             index,
             v.lowStockThreshold ?? null,
@@ -1038,7 +1091,7 @@ export class ProductsService {
             v.name,
             v.priceOverride ?? null,
             v.costPriceOverride ?? null,
-            v.sku ?? null,
+            normalizeVariantSku(v.sku),
             v.isActive === false ? 0 : 1,
             index,
             Math.max(v.openingStock ?? 0, 0),
@@ -1080,7 +1133,7 @@ export class ProductsService {
           name: v.name,
           priceOverride: v.priceOverride ?? null,
           costPriceOverride: v.costPriceOverride ?? null,
-          sku: v.sku ?? null,
+          sku: normalizeVariantSku(v.sku),
           isActive: v.isActive !== false,
           sortOrder: index,
           openingStock: prior ? undefined : (v.openingStock ?? 0),
@@ -1125,6 +1178,7 @@ export class ProductsService {
     const businessId = this.requireBusinessId()
     const product = this.getOne(productId)
     if (!product) throw new Error('Product not found.')
+    this.assertTakesVariants(product)
     const now = new Date().toISOString()
     // Variants are attribute-based (options) OR free-form (a manually named option).
     // Combination-dedupe only applies to attribute-based variants; a free-form variant
@@ -1133,19 +1187,16 @@ export class ProductsService {
     if (!hasOptions && !input.name?.trim()) {
       throw new Error('Give the variant a name or select at least one option.')
     }
-    if (hasOptions) {
-      const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
-      if (
-        this.listVariants(productId).some(
-          (v) =>
-            v.options.length > 0 &&
-            variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
-        )
-      ) {
-        throw new Error('A variant with this combination already exists.')
-      }
-    }
-    this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null }])
+    // The same combination as another variant (@biztrack/domain, as the server).
+    const clash = findVariantComboClash(
+      this.listVariants(productId).map((v) => ({
+        id: v.id,
+        optionIds: v.options.map((o) => o.attributeOptionId),
+      })),
+      input.options.map((o) => o.attributeOptionId),
+    )
+    if (clash) throw new Error('A variant with this combination already exists.')
+    this.assertVariantSkusFree(businessId, [{ sku: normalizeVariantSku(input.sku) }])
     const id = randomUUID()
     const sortOrder = this.listVariants(productId).length
     const stock = product.isSerialized ? 0 : Math.max(input.openingStock ?? 0, 0)
@@ -1159,7 +1210,7 @@ export class ProductsService {
         input.name,
         input.priceOverride ?? null,
         input.costPriceOverride ?? null,
-        input.sku ?? null,
+        normalizeVariantSku(input.sku),
         input.isActive === false ? 0 : 1,
         sortOrder,
         stock,
@@ -1199,7 +1250,7 @@ export class ProductsService {
         name: input.name,
         priceOverride: input.priceOverride ?? null,
         costPriceOverride: input.costPriceOverride ?? null,
-        sku: input.sku ?? null,
+        sku: normalizeVariantSku(input.sku),
         isActive: input.isActive !== false,
         sortOrder,
         openingStock: stock,
@@ -1238,7 +1289,9 @@ export class ProductsService {
     const businessId = this.requireBusinessId()
     const prior = this.listVariants(productId).find((v) => v.id === variantId)
     if (!prior) throw new Error('Variant not found.')
-    this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null, keepId: variantId }])
+    this.assertVariantSkusFree(businessId, [
+      { sku: normalizeVariantSku(input.sku), keepId: variantId },
+    ])
     const now = new Date().toISOString()
     // Descriptive/SEO fields: an explicit value (incl. null) sets it; undefined keeps the prior.
     const keep = (v: string | null | undefined, p: string | null) =>
@@ -1262,7 +1315,7 @@ export class ProductsService {
         input.name,
         input.priceOverride ?? null,
         input.costPriceOverride ?? null,
-        input.sku ?? null,
+        normalizeVariantSku(input.sku),
         input.isActive === false ? 0 : 1,
         lowStockThreshold,
         reorderPoint,
@@ -1286,7 +1339,7 @@ export class ProductsService {
         name: input.name,
         priceOverride: input.priceOverride ?? null,
         costPriceOverride: input.costPriceOverride ?? null,
-        sku: input.sku ?? null,
+        sku: normalizeVariantSku(input.sku),
         isActive: input.isActive !== false,
         sortOrder: prior.sortOrder,
         lowStockThreshold,
@@ -1316,7 +1369,7 @@ export class ProductsService {
           name: input.name,
           priceOverride: input.priceOverride ?? null,
           costPriceOverride: input.costPriceOverride ?? null,
-          sku: input.sku ?? null,
+          sku: normalizeVariantSku(input.sku),
           isActive: input.isActive !== false,
         },
       },
@@ -1333,17 +1386,20 @@ export class ProductsService {
     if (!product) throw new Error('Product not found.')
     const variant = this.listVariants(productId).find((v) => v.id === variantId)
     if (!variant) throw new Error('Variant not found.')
+    // The reason and write-off (@biztrack/domain planVariantRemoval, as the server); the
+    // stock is known once the variant's units are counted, so the plan is made twice.
+    if (!planVariantRemoval({ reason, stock: 0 }).ok)
+      throw new Error('A reason is required to remove a variant.')
     const trimmed = reason.trim()
-    if (!trimmed) throw new Error('A reason is required to remove a variant.')
     const now = new Date().toISOString()
 
-    let writeOff: number
+    let stock: number
     if (product.isSerialized) {
       const units = this.db.query<{ id: string }>(
         `SELECT id FROM product_serial_units WHERE business_id = ? AND product_id = ? AND variant_id = ? AND is_deleted = 0 AND status = 'IN_STOCK'`,
         [businessId, productId, variantId],
       )
-      writeOff = units.length
+      stock = units.length
       for (const u of units) {
         this.db.run(
           `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
@@ -1352,8 +1408,10 @@ export class ProductsService {
         this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
       }
     } else {
-      writeOff = variant.stockQuantity
+      stock = variant.stockQuantity
     }
+    const plan = planVariantRemoval({ reason, stock })
+    if (!plan.ok) throw new Error('A reason is required to remove a variant.')
 
     this.db.run(
       `UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`,
@@ -1372,11 +1430,11 @@ export class ProductsService {
       now,
     )
 
-    if (writeOff > 0) {
+    if (plan.writeOff > 0) {
       this.recordStockMovement(
         productId,
         businessId,
-        -writeOff,
+        -plan.writeOff,
         { referenceType: 'product_variant', referenceId: variantId, variantId, notes: trimmed },
         now,
       )
@@ -1497,18 +1555,20 @@ export class ProductsService {
     const existingBySerial = new Map(existing.map((u) => [u.serialNumber, u]))
     const keepIds = new Set<string>()
 
-    for (const u of units) {
-      const serial = u.serialNumber.trim()
-      if (!serial) continue
+    for (const u of serialBatch(units)) {
+      const serial = u.serialNumber
+      this.assertSerialNumber(serial, u.serialType)
       const prior = existingBySerial.get(serial)
-      const id = prior?.id ?? randomUUID()
+      // A number not on this product yet: the server's rule for adding one (@biztrack/domain).
+      const decision = prior ? null : this.decideSerialAdd(businessId, serial, u.serialType)
+      const id = prior?.id ?? (decision?.action === 'REVIVE' ? decision.unitId : randomUUID())
       keepIds.add(id)
       const variantId = u.variantId ?? null
-      if (prior) {
+      if (prior || decision?.action === 'REVIVE') {
         this.db.run(
-          `UPDATE product_serial_units SET variant_id = ?, serial_type = ?, is_deleted = 0, updated_at = ?
+          `UPDATE product_serial_units SET product_id = ?, variant_id = ?, serial_type = ?, status = 'IN_STOCK', is_deleted = 0, updated_at = ?
            WHERE id = ? AND business_id = ?`,
-          [variantId, u.serialType, now, id, businessId],
+          [productId, variantId, u.serialType, now, id, businessId],
         )
       } else {
         this.db.run(
@@ -1572,28 +1632,21 @@ export class ProductsService {
     if (!product.isSerialized) throw new Error('This product does not track serial numbers.')
     const now = new Date().toISOString()
     const created: LocalSerialUnit[] = []
-    const seen = new Set<string>()
 
-    for (const u of units) {
-      const serial = u.serialNumber.trim()
-      if (!serial || seen.has(serial)) continue
-      seen.add(serial)
+    for (const u of serialBatch(units)) {
+      const serial = u.serialNumber
       const variantId = u.variantId ?? null
-      const existing = this.db.get<SerialUnitRow & { is_deleted: number }>(
-        `SELECT id, product_id, variant_id, serial_number, serial_type, status, is_deleted
-         FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
-        [businessId, serial],
+      const decision = this.decideSerialAdd(
+        businessId,
+        serial,
+        u.serialType ?? product.serialType ?? 'SERIAL_NUMBER',
       )
       let id: string
-      if (existing) {
-        const live =
-          existing.is_deleted === 0 &&
-          (existing.status === 'IN_STOCK' || existing.status === 'RESERVED')
-        if (live) throw new Error(`${serial} is already in stock.`)
-        id = existing.id
+      if (decision.action === 'REVIVE') {
+        id = decision.unitId
         this.db.run(
-          `UPDATE product_serial_units SET status = 'IN_STOCK', is_deleted = 0, variant_id = ?, serial_type = ?, updated_at = ? WHERE id = ?`,
-          [variantId, u.serialType, now, id],
+          `UPDATE product_serial_units SET product_id = ?, status = 'IN_STOCK', is_deleted = 0, variant_id = ?, serial_type = ?, updated_at = ? WHERE id = ?`,
+          [productId, variantId, u.serialType, now, id],
         )
       } else {
         id = randomUUID()
@@ -1680,9 +1733,16 @@ export class ProductsService {
       [unitId, productId, businessId],
     )
     if (!unit) throw new Error('Serial unit not found.')
-    if (unit.status !== 'IN_STOCK') throw new Error('Only in-stock units can be retired.')
-    const trimmed = reason.trim()
-    if (!trimmed) throw new Error('A reason is required to retire a unit.')
+    // Only an in-stock unit is retired, with a reason (@biztrack/domain), as on the server.
+    const retire = checkSerialRetire({ status: unit.status, reason })
+    if (!retire.ok) {
+      throw new Error(
+        retire.code === 'SERIAL_UNIT_NOT_IN_STOCK'
+          ? 'Only in-stock units can be retired.'
+          : 'A reason is required to retire a unit.',
+      )
+    }
+    const trimmed = retire.reason
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
@@ -1734,20 +1794,37 @@ export class ProductsService {
       [unitId, productId, businessId],
     )
     if (!unit) throw new Error('Serial unit not found.')
-    if (unit.status !== 'IN_STOCK') throw new Error('Sold or retired units cannot be edited.')
 
-    let serial = unit.serial_number
-    if (input.serialNumber !== undefined) {
-      serial = input.serialNumber.trim()
-      if (!serial) throw new Error('Serial number is required.')
-      if (serial !== unit.serial_number) {
-        const clash = this.db.get<{ id: string }>(
-          `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
-          [businessId, serial],
-        )
-        if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
-      }
+    // Only an in-stock unit is edited; a new number is shaped and free (@biztrack/domain).
+    const next = input.serialNumber?.trim()
+    const edit = checkSerialEdit({
+      unitId,
+      status: unit.status,
+      current: unit.serial_number,
+      next: input.serialNumber,
+      serialType: unit.serial_type,
+      holder:
+        next && next !== unit.serial_number
+          ? (this.db.get<{ id: string }>(
+              `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+              [businessId, next],
+            ) ?? null)
+          : null,
+    })
+    if (!edit.ok) {
+      throw new Error(
+        edit.code === 'SERIAL_UNIT_NOT_IN_STOCK'
+          ? 'Sold or retired units cannot be edited.'
+          : edit.code === 'SERIAL_REQUIRED'
+            ? 'Serial number is required.'
+            : edit.code === 'SERIAL_INVALID_FORMAT'
+              ? unit.serial_type === 'IMEI'
+                ? `“${next}” is not a valid IMEI.`
+                : `“${next}” is not a valid serial number.`
+              : `${next} is already in use.`,
+      )
     }
+    const serial = edit.serialNumber
 
     const description =
       input.description !== undefined ? input.description : (unit.description ?? null)
@@ -2000,6 +2077,23 @@ export class ProductsService {
 
   // ---- internals -----------------------------------------------------------
 
+  /**
+   * The slug the server would give this name (@biztrack/domain uniqueSlug, R12): numbered
+   * from -2 when another product of the business, deleted ones included, already has it.
+   */
+  private uniqueSlugFor(businessId: string, name: string, selfId?: string): string {
+    const base = slugify(name) || 'item'
+    const taken = this.db.query<{ slug: string }>(
+      `SELECT slug FROM products
+        WHERE business_id = ? AND id <> ? AND slug IS NOT NULL AND (slug = ? OR slug LIKE ?)`,
+      [businessId, selfId ?? '', base, `${base}-%`],
+    )
+    return uniqueSlug(
+      name,
+      taken.map((r) => r.slug),
+    )
+  }
+
   private getOne(id: string): LocalProduct | null {
     const row = this.db.get<ProductRow>(`SELECT ${COLS} FROM ${FROM} WHERE p.id = ?`, [id])
     return row ? toLocalProduct(row) : null
@@ -2016,6 +2110,150 @@ export class ProductsService {
    * business). Enforced here so an empty or stale unit can never be persisted, whatever
    * the caller — the form's "required" hint is a convenience, this is the guarantee.
    */
+  /** What a product of its type may carry (@biztrack/domain checkProductKind), as on the server. */
+  private assertKind(type: ProductType, input: ProductInput): void {
+    const problem = checkProductKind({
+      productType: type,
+      isSerialized: input.isSerialized === true,
+      serialType: input.serialType,
+    })
+    if (problem === 'SERIALIZED_ONLY_SIMPLE')
+      throw new Error('Only a simple product can track serial numbers.')
+    if (problem === 'SERIAL_TYPE_REQUIRED' || problem === 'SERIAL_TYPE_INVALID')
+      throw new Error('Choose how the serial numbers are written (IMEI, serial number or barcode).')
+  }
+
+  /** Variants go only on a simple product or one sold by quantity, as on the server. */
+  private assertTakesVariants(product: LocalProduct): void {
+    if (!productTakesVariants(product.productType)) {
+      throw new Error('This kind of product cannot have variants.')
+    }
+  }
+
+  /** Prices are never negative (ruling R15), as on the server. */
+  private assertPrices(input: ProductInput): void {
+    const problem = checkProductPrices({
+      sellingPrice: Number(input.sellingPrice),
+      costPrice: input.costPrice,
+    })
+    if (problem === 'PRODUCT_PRICE_INVALID')
+      throw new Error('The selling price cannot be negative.')
+    if (problem === 'PRODUCT_COST_INVALID') throw new Error('The cost cannot be negative.')
+  }
+
+  /**
+   * Whether `serial` may go into stock and on which unit (@biztrack/domain decideSerialAdd,
+   * the server's rule): a number on hand anywhere in the business is refused, a sold or
+   * retired one comes back on its own unit.
+   */
+  private decideSerialAdd(
+    businessId: string,
+    serial: string,
+    serialType: string,
+  ): { action: 'CREATE' } | { action: 'REVIVE'; unitId: string } {
+    const holder = this.db.get<{ id: string; status: string; is_deleted: number }>(
+      `SELECT id, status, is_deleted FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+      [businessId, serial],
+    )
+    const decision = decideSerialAdd({
+      serialNumber: serial,
+      serialType,
+      holder: holder
+        ? { id: holder.id, status: holder.status, deleted: holder.is_deleted === 1 }
+        : null,
+    })
+    if (!decision.ok) {
+      if (decision.code === 'SERIAL_DUPLICATE_IN_STOCK')
+        throw new Error(`${serial} is already in stock.`)
+      this.assertSerialNumber(serial, serialType)
+      throw new Error(`“${serial}” is not a valid serial number.`)
+    }
+    return decision
+  }
+
+  /** A serial number has the shape its type needs (@biztrack/domain), as on the server. */
+  private assertSerialNumber(serial: string, serialType: string): void {
+    if (!validateSerialNumber(serial, serialType)) {
+      throw new Error(
+        serialType === 'IMEI'
+          ? `“${serial}” is not a valid IMEI.`
+          : `“${serial}” is not a valid serial number.`,
+      )
+    }
+  }
+
+  /**
+   * The SKU to store: the shape and "cannot change once set" are @biztrack/domain's
+   * (`checkProductSku`), the rules the server applies when the product syncs; and no other
+   * product of the business may have it, deleted ones included, as on the server.
+   */
+  private resolveSku(
+    businessId: string,
+    existing: string | null,
+    incoming: string | null | undefined,
+    productId: string | null,
+    /** Set when creating: a product created without a SKU gets one here (ruling R17). */
+    categoryId: string | null,
+  ): string | null {
+    const result = checkProductSku({ existing, incoming })
+    if (!result.ok) {
+      throw new Error(
+        result.code === 'PRODUCT_SKU_IMMUTABLE'
+          ? 'A product’s SKU cannot be changed once it is set.'
+          : 'A SKU can only use letters, digits, - and _.',
+      )
+    }
+    if (result.sku && result.sku !== existing) {
+      const taken = this.db.get<{ id: string }>(
+        `SELECT id FROM products WHERE business_id = ? AND sku = ? AND id != ?`,
+        [businessId, result.sku, productId ?? ''],
+      )
+      if (taken) throw new Error('Another product already uses this SKU.')
+    }
+    if (result.sku || existing || productId) return result.sku
+    return this.generateSku(businessId, categoryId)
+  }
+
+  /** A new SKU, made the way the server makes one (@biztrack/domain buildProductSku). */
+  private generateSku(businessId: string, categoryId: string | null): string {
+    const categorySlug = categoryId
+      ? (this.db.get<{ slug: string | null }>(
+          `SELECT slug FROM product_categories WHERE id = ? AND business_id = ?`,
+          [categoryId, businessId],
+        )?.slug ?? null)
+      : null
+    const now = Date.now()
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const random = Array.from(
+        { length: 4 },
+        () => SKU_RANDOM_ALPHABET[Math.floor(Math.random() * SKU_RANDOM_ALPHABET.length)],
+      ).join('')
+      const sku = buildProductSku({ categorySlug, now, random })
+      const taken = this.db.get<{ id: string }>(
+        `SELECT id FROM products WHERE business_id = ? AND sku = ?`,
+        [businessId, sku],
+      )
+      if (!taken) return sku
+    }
+    throw new Error('Could not make a SKU for this product. Try again.')
+  }
+
+  /** A barcode is any text, trimmed, and no other product of the business may have it (R17). */
+  private resolveBarcode(
+    businessId: string,
+    incoming: string | null | undefined,
+    productId: string | null,
+  ): string | null {
+    const barcode = normalizeBarcode(incoming)
+    if (!barcode) return null
+    const taken = this.db.get<{ id: string }>(
+      `SELECT id FROM products WHERE business_id = ? AND barcode = ? AND id != ?`,
+      [businessId, barcode, productId ?? ''],
+    )
+    if (taken) throw new Error('Another product already uses this barcode.')
+    return barcode
+  }
+
   private assertUnit(unitId: string | null | undefined, businessId: string): void {
     const id = (unitId ?? '').trim()
     if (!id) throw new Error('A unit of measure is required.')
@@ -2046,12 +2284,18 @@ export class ProductsService {
     }
   }
 
-  private payload(input: ProductInput, type: ProductType): Record<string, unknown> {
+  private payload(
+    input: ProductInput,
+    type: ProductType,
+    codes: { sku: string | null; barcode: string | null; trackInventory?: boolean },
+  ): Record<string, unknown> {
     return {
       name: input.name.trim(),
       description: input.description?.trim() || null,
-      sku: input.sku?.trim() || null,
-      barcode: input.barcode?.trim() || null,
+      // The SKU and barcode as stored here, generated or normalised, not as typed.
+      sku: codes.sku,
+      barcode: codes.barcode,
+      trackInventory: productStockFlags(type, codes.trackInventory).trackInventory,
       sellingPrice: input.sellingPrice,
       costPrice: input.costPrice ?? null,
       taxRate: input.taxRate ?? 0,
@@ -2141,6 +2385,8 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     lowStockThreshold: row.low_stock_threshold,
     reorderPoint: row.reorder_point,
     currentStock: row.effective_stock ?? row.stock_quantity ?? 0,
+    stockStatus:
+      row.track_inventory === 1 ? (row.stock_status.toLowerCase() as 'in' | 'low' | 'out') : null,
     hasVariants: row.has_variants === 1,
     categoryName: row.category_name,
     brandName: row.brand_name,

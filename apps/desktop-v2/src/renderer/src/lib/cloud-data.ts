@@ -67,7 +67,19 @@ import type {
   UploadFileInput,
   UploadedFile,
 } from '@shared/ipc'
-import type { BusinessMembershipSummary } from '@biztrack/types'
+import type {
+  BusinessMembershipSummary,
+  ReviewFlag,
+  ReviewFlagsCount,
+  ReviewFlagsListResponse,
+  ReviewFlagsQuery,
+} from '@biztrack/types'
+import type {
+  AddOnlineCustomerToContactsRequest,
+  OnlineCustomer,
+  OnlineCustomerListResult,
+  OnlineCustomersQuery,
+} from '@biztrack/types'
 import { cget, cpost, cpatch, cput, cdelete } from './cloud-http'
 import { fetchCloudSession } from './cloud-auth'
 
@@ -126,6 +138,23 @@ export const cloudNotificationsRest = {
   unreadCount: () => cget<UnreadCountResponse>('/notifications/unread-count'),
   markRead: (id: string) => cpatch<MarkNotificationReadResponse>(`/notifications/${id}/read`, {}),
   markAllRead: () => cpatch<MarkAllNotificationsReadResponse>('/notifications/read-all', {}),
+}
+
+export const cloudReviewFlags = {
+  list: (query: ReviewFlagsQuery = {}) => {
+    const params = new URLSearchParams()
+    if (query.page) params.set('page', String(query.page))
+    if (query.limit) params.set('limit', String(query.limit))
+    if (query.status) params.set('status', query.status)
+    if (query.severity) params.set('severity', query.severity)
+    if (query.code) params.set('code', query.code)
+    if (query.entityId) params.set('entityId', query.entityId)
+    const qs = params.toString()
+    return cget<ReviewFlagsListResponse>(`/review-flags${qs ? `?${qs}` : ''}`)
+  },
+  count: () => cget<ReviewFlagsCount>('/review-flags/count'),
+  resolve: (id: string, note?: string) =>
+    cpost<ReviewFlag>(`/review-flags/${id}/resolve`, note?.trim() ? { note: note.trim() } : {}),
 }
 
 export const cloudInvitations = {
@@ -250,6 +279,16 @@ export const cloudOnline = {
     cpatch<OnlineOrder>(`/online-store/orders/${id}/status`, input),
   updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) =>
     cpatch<OnlineOrderDetail>(`/online-store/orders/${id}/payment`, input),
+  listCustomers: (query: OnlineCustomersQuery = {}) => {
+    const params = new URLSearchParams()
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+    })
+    const qs = params.toString()
+    return cget<OnlineCustomerListResult>(`/online-store/customers${qs ? `?${qs}` : ''}`)
+  },
+  addCustomerToContacts: (id: string, input: AddOnlineCustomerToContactsRequest) =>
+    cpost<OnlineCustomer>(`/online-store/customers/${id}/contact`, input),
   checkSlug: (slug: string) =>
     cget<OnlineSlugCheck>(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`),
   listProducts: (query: OnlineAdminProductsQuery = {}) => {

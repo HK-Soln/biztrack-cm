@@ -23,7 +23,7 @@ function clean<T extends Record<string, unknown>>(o: T): Record<string, unknown>
 
 /**
  * Cloud (browser) read adapter for inventory. Maps the API list/alert/movement DTOs to
- * the desktop `Local*` shapes. `stockStatus` is derived from `isLowStock` + quantity.
+ * the desktop `Local*` shapes. `stockStatus` comes from the server (@biztrack/domain rule).
  *
  * GAPS (defaulted, flagged): the list DTO doesn't carry per-product `currency` or
  * `stockValueCost` (cost×stock) → defaulted; there's no `GET /inventory/stats`, so
@@ -40,12 +40,6 @@ function qs(query?: Record<string, unknown>): string {
   return s ? `?${s}` : ''
 }
 
-function stockStatus(quantity: number, isLowStock: boolean): LocalInventoryItem['stockStatus'] {
-  if (quantity <= 0) return 'out'
-  if (isLowStock) return 'low'
-  return 'in'
-}
-
 interface ApiInventoryItem {
   productId: string
   productName?: string | null
@@ -56,6 +50,8 @@ interface ApiInventoryItem {
   quantity: number
   lowStockThreshold?: number | null
   reorderPoint?: number | null
+  /** Worked out by the server with @biztrack/domain's productStockStatus. */
+  stockStatus: 'OUT' | 'LOW' | 'IN'
   isLowStock: boolean
   lastRestockAt?: string | null
 }
@@ -72,7 +68,7 @@ function toLocalInventoryItem(i: ApiInventoryItem): LocalInventoryItem {
     currentStock: i.quantity,
     lowStockThreshold: i.lowStockThreshold ?? null,
     reorderPoint: i.reorderPoint ?? null,
-    stockStatus: stockStatus(i.quantity, i.isLowStock),
+    stockStatus: i.stockStatus.toLowerCase() as LocalInventoryItem['stockStatus'],
     stockValueCost: 0, // cost×stock not exposed by the inventory list DTO yet
     lastRestockAt: i.lastRestockAt ?? null,
   }
@@ -85,6 +81,7 @@ interface ApiInventoryAlert {
   currentQuantity: number
   lowStockThreshold?: number | null
   reorderPoint?: number | null
+  target?: number
   shortfall: number
   velocity?: number | null
   daysCover?: number | null
@@ -101,7 +98,7 @@ function toLocalReorderSuggestion(a: ApiInventoryAlert): LocalReorderSuggestion 
     name: a.productName ?? '',
     sku: a.sku ?? null,
     currentStock: a.currentQuantity,
-    target: a.reorderPoint ?? a.lowStockThreshold ?? 0,
+    target: a.target ?? a.reorderPoint ?? a.lowStockThreshold ?? 0,
     suggestedQty: a.shortfall,
     unitCost: null,
     currency: 'XAF',

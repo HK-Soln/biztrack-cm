@@ -263,6 +263,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1068.0
         version: 3.1068.0
+      '@biztrack/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@biztrack/http-client':
         specifier: workspace:*
         version: link:../../packages/http-client
@@ -496,6 +499,9 @@ importers:
         specifier: ^5.0.2
         version: 5.0.11(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
+      '@biztrack/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@biztrack/electron-core':
         specifier: workspace:*
         version: link:../../packages/electron-core
@@ -830,8 +836,36 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/domain:
+    dependencies:
+      '@biztrack/types':
+        specifier: workspace:*
+        version: link:../types
+      libphonenumber-js:
+        specifier: ^1.12.10
+        version: 1.12.40
+    devDependencies:
+      '@biztrack/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@biztrack/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      eslint:
+        specifier: ^9.32.0
+        version: 9.39.4(jiti@1.21.7)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@22.19.15)(jsdom@20.0.3)(vite@6.4.3(@types/node@22.19.15)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+
   packages/electron-core:
     dependencies:
+      '@biztrack/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@biztrack/http-client':
         specifier: workspace:*
         version: link:../http-client
@@ -960,6 +994,10 @@ importers:
         version: 5.9.3
 
   packages/templates:
+    dependencies:
+      '@biztrack/domain':
+        specifier: workspace:*
+        version: link:../domain
     devDependencies:
       '@biztrack/eslint-config':
         specifier: workspace:*
@@ -1091,9 +1129,6 @@ importers:
       '@biztrack/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
-      '@biztrack/types':
-        specifier: workspace:*
-        version: link:../types
       '@biztrack/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
@@ -1103,12 +1138,12 @@ importers:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@22.19.15)(jsdom@20.0.3)(vite@6.4.3(@types/node@22.19.15)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
 
   packages/validators:
     dependencies:
+      '@biztrack/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@biztrack/types':
         specifier: workspace:*
         version: link:../types
@@ -1844,11 +1879,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -5565,6 +5600,7 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cron@4.4.0:
     resolution: {integrity: sha512-fkdfq+b+AHI4cKdhZlppHveI/mgz2qpiYxcm+t5E5TsxX7QrLS1VE0+7GENEk9z0EeGPcpSciGv6ez24duWhwQ==}

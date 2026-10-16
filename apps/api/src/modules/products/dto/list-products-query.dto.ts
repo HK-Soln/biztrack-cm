@@ -59,7 +59,10 @@ export class ListProductsQueryDto extends ListQueryDto implements ProductsQuery 
   @IsUUID()
   brandId?: string
 
-  @ApiPropertyOptional({ description: 'Filter by effective stock status', enum: ['in', 'low', 'out'] })
+  @ApiPropertyOptional({
+    description: 'Filter by effective stock status',
+    enum: ['in', 'low', 'out'],
+  })
   @IsOptional()
   @IsIn(['in', 'low', 'out'])
   stockStatus?: 'in' | 'low' | 'out'

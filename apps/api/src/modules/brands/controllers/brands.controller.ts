@@ -49,7 +49,11 @@ export class BrandsController {
   @RequireResource(Resource.PRODUCTS_VIEW)
   @ApiOperation({ summary: 'Get a brand' })
   async findOne(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<Brand> {
-    return serializeDto(BrandResponseDto.fromEntity(await this.brandsService.findById(id, user.businessId as string))!)
+    return serializeDto(
+      BrandResponseDto.fromEntity(
+        await this.brandsService.findById(id, user.businessId as string),
+      )!,
+    )
   }
 
   @Post()
@@ -60,7 +64,11 @@ export class BrandsController {
     @Body() dto: CreateBrandDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Brand> {
-    return serializeDto(BrandResponseDto.fromEntity(await this.brandsService.create(user.businessId as string, dto, auditContext))!)
+    return serializeDto(
+      BrandResponseDto.fromEntity(
+        await this.brandsService.create(user.businessId as string, dto, auditContext),
+      )!,
+    )
   }
 
   @Patch(':id')
@@ -72,7 +80,11 @@ export class BrandsController {
     @Body() dto: UpdateBrandDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Brand> {
-    return serializeDto(BrandResponseDto.fromEntity(await this.brandsService.update(id, user.businessId as string, dto, auditContext))!)
+    return serializeDto(
+      BrandResponseDto.fromEntity(
+        await this.brandsService.update(id, user.businessId as string, dto, auditContext),
+      )!,
+    )
   }
 
   @Delete(':id')
@@ -96,7 +108,11 @@ export class BrandsController {
     @Body() dto: CreateModelDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Model> {
-    return serializeDto(ModelResponseDto.fromEntity(await this.brandsService.addModel(id, user.businessId as string, dto, auditContext))!)
+    return serializeDto(
+      ModelResponseDto.fromEntity(
+        await this.brandsService.addModel(id, user.businessId as string, dto, auditContext),
+      )!,
+    )
   }
 
   @Patch(':id/models/:modelId')
@@ -110,7 +126,15 @@ export class BrandsController {
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Model> {
     return serializeDto(
-      ModelResponseDto.fromEntity(await this.brandsService.updateModel(id, modelId, user.businessId as string, dto, auditContext))!,
+      ModelResponseDto.fromEntity(
+        await this.brandsService.updateModel(
+          id,
+          modelId,
+          user.businessId as string,
+          dto,
+          auditContext,
+        ),
+      )!,
     )
   }
 

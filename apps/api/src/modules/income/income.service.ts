@@ -1,3 +1,4 @@
+import { comparisonPeriod, summarizeAmounts, toWholeXaf } from '@biztrack/domain'
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, Repository } from 'typeorm'
@@ -9,6 +10,7 @@ import {
   type OtherIncomeSource,
   type OtherIncomeSummary,
   type OtherIncomeView,
+  type OtherIncomeSummaryCard,
 } from '@biztrack/types'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { OtherIncome } from '@/entities/other-income.entity'
@@ -78,7 +80,7 @@ export class IncomeService {
         recordedById: params.recordedById ?? null,
         categoryId: params.categoryId,
         description: params.description,
-        amount: this.round(params.amount),
+        amount: toWholeXaf(params.amount),
         currency: params.currency ?? 'XAF',
         paymentMethod: params.paymentMethod ?? null,
         reference: params.reference ?? null,
@@ -136,7 +138,8 @@ export class IncomeService {
     },
   ): Promise<OtherIncomeView> {
     const existing = await this.incomes.findOne({ where: { id, businessId } })
-    if (!existing) throw new AppNotFoundException('Income entry not found.', 'OTHER_INCOME_NOT_FOUND')
+    if (!existing)
+      throw new AppNotFoundException('Income entry not found.', 'OTHER_INCOME_NOT_FOUND')
     if (existing.source !== 'MANUAL')
       throw new AppBadRequestException(
         'This income was recorded automatically and cannot be edited.',
@@ -148,14 +151,17 @@ export class IncomeService {
     await this.incomes.update(id, {
       categoryId: category?.id ?? existing.categoryId,
       description: dto.description?.trim() ?? existing.description,
-      amount: dto.amount != null ? this.round(dto.amount) : existing.amount,
+      amount: dto.amount != null ? toWholeXaf(dto.amount) : existing.amount,
       paymentMethod: dto.paymentMethod ?? existing.paymentMethod,
       note: dto.note ?? existing.note,
       date: dto.date ? this.parseDate(dto.date) : existing.date,
       updatedAt: new Date(),
     })
     void user
-    const fresh = (await this.incomes.findOne({ where: { id, businessId }, relations: ['category'] }))!
+    const fresh = (await this.incomes.findOne({
+      where: { id, businessId },
+      relations: ['category'],
+    }))!
     return this.toView(fresh, fresh.category?.name ?? '', fresh.category?.color ?? null)
   }
 
@@ -206,12 +212,95 @@ export class IncomeService {
   }
 
   /** Create a business income category ("add a new category" on the Other Income page). */
+  /**
+   * The Other Income dashboard over a period: totals, change against the same number of
+   * days just before, average per day and each category's share. The figures are
+   * @biztrack/domain's `summarizeAmounts`, as on the till.
+   */
+  async getSummaryCard(
+    businessId: string,
+    query: { categoryId?: string; from?: string; to?: string },
+  ): Promise<OtherIncomeSummaryCard> {
+    const params: unknown[] = [businessId]
+    const conds = ['oi.business_id = $1', 'oi.deleted_at IS NULL']
+    if (query.categoryId) {
+      params.push(query.categoryId)
+      conds.push(`oi.category_id = $${params.length}`)
+    }
+    if (query.from) {
+      params.push(query.from.slice(0, 10))
+      conds.push(`oi.date >= $${params.length}`)
+    }
+    if (query.to) {
+      params.push(query.to.slice(0, 10))
+      conds.push(`oi.date <= $${params.length}`)
+    }
+    const where = conds.join(' AND ')
+    const mgr = this.incomes.manager
+    const [tot] = (await mgr.query(
+      `SELECT COALESCE(SUM(oi.amount), 0) AS total, COUNT(*)::int AS n,
+              COALESCE(SUM(oi.amount) FILTER (WHERE oi.source = 'PAYMENT_LINK'), 0) AS links
+         FROM other_incomes oi WHERE ${where}`,
+      params,
+    )) as Array<{ total: string; n: number; links: string }>
+    const cats = (await mgr.query(
+      `SELECT oi.category_id AS "categoryId", c.name AS name, c.color AS color,
+              COALESCE(SUM(oi.amount), 0) AS amount
+         FROM other_incomes oi LEFT JOIN income_categories c ON c.id = oi.category_id
+        WHERE ${where}
+        GROUP BY oi.category_id, c.name, c.color`,
+      params,
+    )) as Array<{ categoryId: string; name: string | null; color: string | null; amount: string }>
+
+    const period = query.from && query.to ? comparisonPeriod(query.from, query.to) : null
+    let previousTotal = 0
+    if (period) {
+      const [prev] = (await mgr.query(
+        `SELECT COALESCE(SUM(amount), 0) AS t FROM other_incomes
+          WHERE business_id = $1 AND deleted_at IS NULL AND date >= $2 AND date <= $3`,
+        [businessId, period.previousFrom, period.previousTo],
+      )) as Array<{ t: string }>
+      previousTotal = Number(prev?.t ?? 0)
+    }
+    const summary = summarizeAmounts({
+      categories: cats.map((cat) => ({ key: cat, amount: Number(cat.amount ?? 0) })),
+      total: Number(tot?.total ?? 0),
+      previousTotal,
+      days: period?.days,
+    })
+    const byCategory = summary.categories.map(({ key, amount, percentage }) => ({
+      categoryId: key.categoryId ?? '',
+      name: key.name ?? '',
+      color: key.color ?? '#9ca3af',
+      amount,
+      percentage,
+    }))
+    const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [
+      businessId,
+    ])) as Array<{ currency: string | null }>
+    return {
+      total: summary.total,
+      count: Number(tot?.n ?? 0),
+      previousTotal: summary.previousTotal,
+      changePct: summary.changePct,
+      avgPerDay: summary.avgPerDay,
+      fromLinks: toWholeXaf(Number(tot?.links ?? 0)),
+      largest: byCategory[0] ?? null,
+      byCategory,
+      currency: biz?.currency ?? 'XAF',
+    }
+  }
+
   async createCategory(
     businessId: string,
     dto: { name: string; color?: string; icon?: string },
   ): Promise<IncomeCategoryView> {
     const name = dto.name.trim()
-    if (!name) throw new AppBadRequestException('A category name is required.', 'INCOME_CATEGORY_NAME_REQUIRED')
+    if (!name)
+      throw new AppBadRequestException(
+        'A category name is required.',
+        'INCOME_CATEGORY_NAME_REQUIRED',
+      )
     const count = await this.categories.count({ where: { businessId } })
     const category = await this.categories.save(
       this.categories.create({
@@ -257,7 +346,11 @@ export class IncomeService {
    * income" line (delivery-fee links, deposit-cancellation charges, manual entries). Upper bound is
    * exclusive to match the expenses P&L query.
    */
-  async otherIncomeTotal(businessId: string, from: string, to: string): Promise<OtherIncomeSummary> {
+  async otherIncomeTotal(
+    businessId: string,
+    from: string,
+    to: string,
+  ): Promise<OtherIncomeSummary> {
     const row = await this.incomes
       .createQueryBuilder('oi')
       .select('COALESCE(SUM(oi.amount), 0)', 'total')
@@ -322,7 +415,7 @@ export class IncomeService {
         categoryId: payload.categoryId,
         recordedById: payload.recordedById ?? payload.fallbackRecordedById ?? null,
         description: payload.description.trim(),
-        amount: this.round(payload.amount),
+        amount: toWholeXaf(payload.amount),
         currency: payload.currency?.trim() || 'XAF',
         paymentMethod: payload.paymentMethod ?? null,
         reference: payload.reference ?? null,
@@ -402,7 +495,10 @@ export class IncomeService {
     if ((await repo.count({ where: { businessId } })) > 0) return
     const now = new Date()
     for (const def of DEFAULT_INCOME_CATEGORIES) {
-      const exists = await repo.findOne({ where: { businessId, slug: def.slug }, withDeleted: true })
+      const exists = await repo.findOne({
+        where: { businessId, slug: def.slug },
+        withDeleted: true,
+      })
       if (exists) continue
       await repo.save(
         repo.create({
@@ -454,10 +550,6 @@ export class IncomeService {
       date: typeof income.date === 'string' ? income.date : income.date.toISOString().slice(0, 10),
       createdAt: income.createdAt.toISOString(),
     }
-  }
-
-  private round(value: number): number {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private parseDate(value: string): Date {

@@ -1,3 +1,4 @@
+import { marginPercent, variantCost, variantPrice } from '@biztrack/domain'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -12,12 +13,15 @@ import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
 import { VariantEditModal } from '@/components/products/VariantEditModal'
 import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
 import { MovementHistoryModal } from '@/components/inventory/MovementHistoryModal'
+import { useStaffMay } from '@/lib/staff'
 
 const RELATED_PAGE_SIZE = 8
 const MOVE_PREVIEW = 5
 
 export function VariantDetail() {
   const t = useT()
+  const mayAdjust = useStaffMay('STOCK_ADJUST')
+  const mayDelete = useStaffMay('PRODUCT_DELETE')
   const navigate = useNavigate()
   const money = useCurrency()
   const bp = useBreakpoint()
@@ -97,13 +101,13 @@ export function VariantDetail() {
 
   const p = product
   const v = variant
-  const effPrice = v.priceOverride ?? p.sellingPrice
-  const effCost = v.costPriceOverride ?? p.costPrice ?? null
+  const effPrice = variantPrice(p, v)
+  const effCost = variantCost(p, v)
   const stock = v.stockQuantity
   const threshold = v.reorderPoint ?? v.lowStockThreshold ?? 0
   const stockValue = (effCost ?? 0) * stock
   const unitMargin = effCost != null && effCost > 0 && effPrice > 0 ? effPrice - effCost : null
-  const marginPct = unitMargin != null && effPrice > 0 ? (unitMargin / effPrice) * 100 : null
+  const marginPct = marginPercent(effPrice, effCost)
   // Non-serialized variants hold a plain quantity that can be adjusted; serialized variants
   // change stock only by adding/retiring serial units below.
   const canAdjust = p.trackInventory && !p.isSerialized
@@ -123,7 +127,7 @@ export function VariantDetail() {
           {t('vdv.backToProduct')}
         </BackButton>
         <div className="acts2">
-          {canAdjust ? (
+          {canAdjust && mayAdjust ? (
             <Button variant="default" onClick={() => setAdjustOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" />
@@ -138,17 +142,19 @@ export function VariantDetail() {
             </svg>
             {t('pdv.edit')}
           </Button>
-          <Button
-            variant="soft"
-            onClick={() => setRemoveOpen(true)}
-            style={{ color: 'var(--danger)' }}
-            title={t('pvar.remove')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
-            </svg>
-            {t('pvar.remove')}
-          </Button>
+          {mayDelete ? (
+            <Button
+              variant="soft"
+              onClick={() => setRemoveOpen(true)}
+              style={{ color: 'var(--danger)' }}
+              title={t('pvar.remove')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+              </svg>
+              {t('pvar.remove')}
+            </Button>
+          ) : null}
         </div>
       </div>
 

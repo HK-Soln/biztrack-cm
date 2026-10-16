@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { ReviewFlagsNavBadge } from '@/components/activity/ReviewFlagsNotice'
 import {
   Icon,
   TABS,
@@ -56,6 +57,7 @@ function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
       {icon ? Icon[icon] : <span style={{ width: 16 }} />}
       <span className="lab">{t(label)}</span>
       {badge ? <span className="badge-a">{t(badge)}</span> : null}
+      <ReviewFlagsNavBadge to={to} />
     </NavLink>
   )
 }
@@ -143,6 +145,7 @@ function NavGroup({
                 {c.icon ? Icon[c.icon] : <span style={{ width: 16 }} />}
                 <span className="lab">{t(c.label)}</span>
                 {c.badge ? <span className="badge-a">{t(c.badge)}</span> : null}
+                <ReviewFlagsNavBadge to={c.to} />
               </NavLink>
             ))}
           </div>

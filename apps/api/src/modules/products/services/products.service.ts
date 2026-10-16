@@ -1,3 +1,17 @@
+import {
+  bundleCanMake,
+  catalogValue,
+  checkBundleComponents,
+  checkProductKind,
+  checkProductSku,
+  newProductStockLevel,
+  productAverageCost,
+  productDisplayPrice,
+  productStockStatus,
+  stockLevelOnEdit,
+  type StockStatus,
+} from '@biztrack/domain'
+import { removeProduct } from '../catalog-removal'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -31,7 +45,6 @@ import { Product } from '@/entities/product.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
-import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -50,8 +63,8 @@ import {
   costExpr,
   priceExpr,
   displayPriceExpr,
-  thresholdExpr,
-  round2,
+  stockStatusExpr,
+  stockStatusWhere,
   type ProductStats,
 } from '@/common/stats/stock-stats'
 
@@ -128,7 +141,7 @@ export class ProductsService {
         : await this.skuService.generate(businessId, category?.slug)
       const barcode = dto.barcode
         ? await this.barcodeService.validateAndNormalize(businessId, dto.barcode)
-        : this.barcodeService.generateFromSKU(sku)
+        : this.barcodeService.none()
 
       // productType is authoritative; isService/trackInventory are derived from it.
       // Legacy clients that send only isService get a best-effort classification.
@@ -140,62 +153,68 @@ export class ProductsService {
       const wantsVariants = (dto.attributeSelections ?? []).some(
         (selection) => (selection.selectedOptionIds?.length ?? 0) > 0,
       )
-      const variantsAllowed =
-        productType === ProductType.SIMPLE || productType === ProductType.VARIABLE_QUANTITY
-      if (wantsVariants && !variantsAllowed) {
+      // What a product of its type may carry is @biztrack/domain's checkProductKind (R12).
+      const kindProblem = checkProductKind({
+        productType,
+        hasVariants: wantsVariants,
+        isSerialized: dto.isSerialized === true,
+        serialType: dto.serialType,
+      })
+      if (kindProblem) {
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.variants_not_supported'),
-          'VARIANTS_NOT_SUPPORTED',
+          await this.i18n.translate(
+            kindProblem === 'VARIANTS_NOT_SUPPORTED'
+              ? 'errors.variants_not_supported'
+              : kindProblem === 'SERIALIZED_ONLY_SIMPLE'
+                ? 'errors.serialized_only_simple'
+                : 'errors.serial_type_required',
+          ),
+          kindProblem,
         )
       }
-      const hasVariants = wantsVariants && variantsAllowed
+      const hasVariants = wantsVariants
 
       // Composite (bundle) products (Phase 3F) — validate components up front.
       const isComposite = productType === ProductType.COMPOSITE
       const bundleComponents = dto.bundleComponents ?? []
       if (isComposite) {
-        if (bundleComponents.length === 0) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.bundle_components_required'),
-            'BUNDLE_COMPONENTS_REQUIRED',
-          )
-        }
         const componentIds = [...new Set(bundleComponents.map((c) => c.componentProductId))]
-        const componentProducts = await this.productsRepo.find({
-          where: { id: In(componentIds), businessId, deletedAt: IsNull() },
+        const componentProducts = componentIds.length
+          ? await this.productsRepo.find({
+              where: { id: In(componentIds), businessId, deletedAt: IsNull() },
+            })
+          : []
+        // A bundle needs components, all found, none a bundle (@biztrack/domain).
+        const bundleProblem = checkBundleComponents({
+          requested: componentIds.length,
+          found: componentProducts,
         })
-        if (componentProducts.length !== componentIds.length) {
+        if (bundleProblem === 'PRODUCT_NOT_FOUND') {
           throw new AppNotFoundException(
             await this.i18n.translate('errors.product_not_found'),
-            'PRODUCT_NOT_FOUND',
+            bundleProblem,
           )
         }
-        // A bundle cannot contain another bundle.
-        if (componentProducts.some((c) => c.productType === ProductType.COMPOSITE)) {
+        if (bundleProblem) {
           throw new AppBadRequestException(
-            await this.i18n.translate('errors.bundle_component_nested'),
-            'BUNDLE_COMPONENT_NESTED',
+            await this.i18n.translate(
+              bundleProblem === 'BUNDLE_COMPONENTS_REQUIRED'
+                ? 'errors.bundle_components_required'
+                : 'errors.bundle_component_nested',
+            ),
+            bundleProblem,
           )
         }
       }
 
-      // Serialised inventory (Phase 3G) — only valid for SIMPLE products.
+      // Serialised inventory (Phase 3G), checked above with the product's kind.
       const isSerialized = dto.isSerialized === true
-      if (isSerialized) {
-        if (productType !== ProductType.SIMPLE) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.serialized_only_simple'),
-            'SERIALIZED_ONLY_SIMPLE',
-          )
-        }
-        if (!dto.serialType) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.serial_type_required'),
-            'SERIAL_TYPE_REQUIRED',
-          )
-        }
-      }
 
+      const newLevel = newProductStockLevel({
+        trackInventory,
+        isSerialized,
+        openingStock: dto.openingStock,
+      })
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
           manager.getRepository(Product).create({
@@ -250,9 +269,10 @@ export class ProductsService {
               }),
             ),
           )
-        } else if (trackInventory && !isSerialized) {
-          // Serialised products derive stock from IN_STOCK serial units — no level row.
-          const quantity = dto.openingStock ?? 0
+        } else if (newLevel) {
+          // The level a new product starts with (@biztrack/domain newProductStockLevel): a
+          // serialized product's level holds its thresholds at 0, its stock is its units.
+          const quantity = newLevel.quantity
           await manager.getRepository(InventoryLevel).save(
             manager.getRepository(InventoryLevel).create({
               businessId,
@@ -338,20 +358,14 @@ export class ProductsService {
       }
 
       // Effective-stock status filter (variant/serial-aware), mirroring the desktop.
-      if (query.stockStatus) {
-        const stock = stockExpr('product')
-        const thr = thresholdExpr('product')
-        if (query.stockStatus === 'out') {
-          qb.andWhere(`product.track_inventory = true AND ${stock} <= 0`)
-        } else if (query.stockStatus === 'low') {
-          qb.andWhere(
-            `product.track_inventory = true AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`,
-          )
-        } else if (query.stockStatus === 'in') {
-          qb.andWhere(
-            `product.track_inventory = true AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`,
-          )
-        }
+      if (
+        query.stockStatus === 'out' ||
+        query.stockStatus === 'low' ||
+        query.stockStatus === 'in'
+      ) {
+        qb.andWhere(
+          `product.track_inventory = true AND ${stockStatusWhere(query.stockStatus, 'product')}`,
+        )
       }
 
       // Apply search
@@ -552,9 +566,8 @@ export class ProductsService {
           where: { productId: id },
           order: { sortOrder: 'ASC', createdAt: 'ASC' },
         }),
-        product.hasVariants
-          ? this.variantsService.listVariantsForProduct(businessId, id)
-          : Promise.resolve(undefined),
+        // Variant rows decide, not the has_variants flag, which can go stale.
+        this.variantsService.listVariantsForProduct(businessId, id),
         isComposite
           ? this.bundleComponentsRepo.find({
               where: { businessId, bundleProductId: id, deletedAt: IsNull() },
@@ -607,31 +620,44 @@ export class ProductsService {
       // the SUM of variant stock, the displayed price is the LOWEST variant price ("from"), and
       // the cost is the AVERAGE variant cost.
       const activeVariants = variants ?? []
-      const variantPrices = activeVariants.map((v) => v.priceOverride ?? product.sellingPrice)
-      const variantCosts = activeVariants.map((v) => v.costPriceOverride ?? product.costPrice ?? 0)
-      const displayPrice = variantPrices.length ? Math.min(...variantPrices) : product.sellingPrice
-      const avgCost = variantCosts.length
-        ? Math.round(variantCosts.reduce((sum, c) => sum + c, 0) / variantCosts.length)
-        : (product.costPrice ?? null)
+      const hasVariantRows = activeVariants.length > 0
+      const displayPrice = productDisplayPrice(product, activeVariants)
+      const avgCost = productAverageCost(product, activeVariants)
 
       const currentStock = product.isSerialized
         ? inStockSerialCount
-        : product.hasVariants
+        : hasVariantRows
           ? activeVariants.reduce((sum, v) => sum + (v.currentStock ?? 0), 0)
           : product.trackInventory
             ? (inventoryLevel?.quantity ?? 0)
             : null
 
+      // Where the stock stands, by the same rule as the list (@biztrack/domain).
+      const stockStatus =
+        currentStock == null
+          ? null
+          : productStockStatus({
+              stock: currentStock,
+              reorderPoint: inventoryLevel?.reorderPoint,
+              lowStockThreshold: inventoryLevel?.lowStockThreshold,
+              variants: activeVariants.map((v) => ({
+                stock: v.currentStock ?? 0,
+                reorderPoint: v.reorderPoint,
+                lowStockThreshold: v.lowStockThreshold,
+              })),
+            })
+
       return {
         ...product,
         currentStock,
-        effectiveSellingPrice: product.hasVariants ? displayPrice : product.sellingPrice,
-        effectiveCostPrice: product.hasVariants ? avgCost : (product.costPrice ?? null),
+        stockStatus,
+        effectiveSellingPrice: hasVariantRows ? displayPrice : product.sellingPrice,
+        effectiveCostPrice: hasVariantRows ? avgCost : (product.costPrice ?? null),
         lowStockThreshold: inventoryLevel?.lowStockThreshold ?? null,
         reorderPoint: inventoryLevel?.reorderPoint ?? null,
         primaryImageUrl: images[0]?.url ?? product.imageUrl ?? null,
         images,
-        variants,
+        variants: hasVariantRows ? variants : undefined,
         bundleComponents,
         serialUnits,
       }
@@ -674,30 +700,21 @@ export class ProductsService {
         levels.map((level) => [level.productId, Number(level.quantity)]),
       )
 
-      let minCanMake = Infinity
-      let limitedBy: string | null = null
-      const componentSummaries = components.map((component) => {
-        const inStock = stockByProduct.get(component.componentProductId) ?? 0
-        const canMakeFromThis = Math.floor(inStock / component.quantity)
-        if (canMakeFromThis < minCanMake) {
-          minCanMake = canMakeFromThis
-          limitedBy = component.componentProduct?.name ?? null
-        }
-        return {
-          productId: component.componentProductId,
-          productName: component.componentProduct?.name ?? '',
-          requiredPerBundle: component.quantity,
-          inStock,
-        }
-      })
-
-      const canMake = components.length === 0 || minCanMake === Infinity ? 0 : minCanMake
-      return {
-        productId,
-        canMake,
-        limitedBy: canMake === 0 ? limitedBy : null,
-        components: componentSummaries,
-      }
+      const componentSummaries = components.map((component) => ({
+        productId: component.componentProductId,
+        productName: component.componentProduct?.name ?? '',
+        requiredPerBundle: component.quantity,
+        inStock: stockByProduct.get(component.componentProductId) ?? 0,
+      }))
+      // How many can be made is @biztrack/domain's bundleCanMake.
+      const { canMake, limitedBy } = bundleCanMake(
+        componentSummaries.map((c) => ({
+          name: c.productName,
+          inStock: c.inStock,
+          requiredPerBundle: c.requiredPerBundle,
+        })),
+      )
+      return { productId, canMake, limitedBy, components: componentSummaries }
     } catch (error) {
       return this.handleServiceError('getBundleAvailability', error, { productId, businessId })
     }
@@ -822,7 +839,7 @@ export class ProductsService {
         isActive: product.isActive,
       })
 
-      if (dto.sku && dto.sku.trim().toUpperCase() !== product.sku) {
+      if (!checkProductSku({ existing: product.sku, incoming: dto.sku }).ok) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.product_sku_immutable'),
           'PRODUCT_SKU_IMMUTABLE',
@@ -884,7 +901,9 @@ export class ProductsService {
         const inventoryRepo = manager.getRepository(InventoryLevel)
         const inventoryLevel = await inventoryRepo.findOne({ where: { businessId, productId: id } })
 
-        if (trackInventory && !inventoryLevel) {
+        // What the edit does to the product's own level (@biztrack/domain stockLevelOnEdit).
+        const levelChange = stockLevelOnEdit({ trackInventory, hasLevel: inventoryLevel != null })
+        if (levelChange === 'CREATE') {
           await inventoryRepo.save(
             inventoryRepo.create({
               businessId,
@@ -893,14 +912,14 @@ export class ProductsService {
               lowStockThreshold: dto.lowStockThreshold ?? null,
             }),
           )
-        } else if (trackInventory && inventoryLevel) {
+        } else if (levelChange === 'KEEP' && inventoryLevel) {
           await inventoryRepo.update(inventoryLevel.id, {
             lowStockThreshold:
               dto.lowStockThreshold === undefined
                 ? inventoryLevel.lowStockThreshold
                 : dto.lowStockThreshold,
           })
-        } else if (!trackInventory && inventoryLevel) {
+        } else if (levelChange === 'REMOVE' && inventoryLevel) {
           await inventoryRepo.delete({ id: inventoryLevel.id })
         }
       })
@@ -971,76 +990,15 @@ export class ProductsService {
       const product = await this.findById(id, businessId)
       const now = new Date()
 
-      await this.dataSource.transaction(async (manager) => {
-        const variantRepo = manager.getRepository(ProductVariant)
-        const optionRepo = manager.getRepository(ProductVariantOption)
-        const serialRepo = manager.getRepository(ProductSerialUnit)
-        const imageRepo = manager.getRepository(ProductImage)
-        const levelRepo = manager.getRepository(InventoryLevel)
-        const movementRepo = manager.getRepository(InventoryMovement)
-
-        // Remaining stock = serial count / sum of variant+product levels.
-        let stockBefore = 0
-        if (product.isSerialized) {
-          stockBefore = await serialRepo.count({
-            where: { businessId, productId: id, status: SerialUnitStatus.IN_STOCK },
-          })
-          await serialRepo
-            .createQueryBuilder()
-            .update()
-            .set({ status: SerialUnitStatus.DAMAGED, deletedAt: now })
-            .where('business_id = :businessId AND product_id = :id AND deleted_at IS NULL', {
-              businessId,
-              id,
-            })
-            .execute()
-        } else {
-          const row = await levelRepo
-            .createQueryBuilder('l')
-            .select('COALESCE(SUM(l.quantity), 0)', 's')
-            .where('l.business_id = :businessId AND l.product_id = :id', { businessId, id })
-            .getRawOne<{ s: string }>()
-          stockBefore = Number(row?.s ?? 0)
-        }
-
-        // Cascade soft-delete children.
-        const variants = await variantRepo.find({
-          where: { productId: id, businessId, deletedAt: IsNull() },
-        })
-        if (variants.length) {
-          await optionRepo.softDelete({ variantId: In(variants.map((v) => v.id)), businessId })
-          await variantRepo.update(
-            { productId: id, businessId, deletedAt: IsNull() },
-            { isActive: false, deletedAt: now },
-          )
-        }
-        await levelRepo.update({ productId: id, businessId }, { quantity: 0, updatedAt: now })
-        await imageRepo.delete({ productId: id })
-
-        if (stockBefore > 0) {
-          // Local trading day (BIZ-5.1) from the business timezone + cutover.
-          const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
-          await movementRepo.save(
-            movementRepo.create({
-              businessId,
-              productId: id,
-              type: MovementType.MANUAL_ADJUSTMENT,
-              quantityChange: -stockBefore,
-              quantityBefore: stockBefore,
-              quantityAfter: 0,
-              referenceType: 'product',
-              referenceId: id,
-              notes: 'Product deleted',
-              performedById: context?.actorId ?? null,
-              businessDate,
-            }),
-          )
-        }
-
-        await manager
-          .getRepository(Product)
-          .update(id, { isActive: false, deletedAt: now, updatedAt: now })
-      })
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, now)
+      await this.dataSource.transaction((manager) =>
+        removeProduct(
+          manager,
+          { businessId, actorId: context?.actorId ?? null, businessDate, at: now },
+          product,
+        ),
+      )
 
       if (context) {
         this.auditService.log(context, {
@@ -1092,7 +1050,7 @@ export class ProductsService {
       const STOCK = stockExpr('p')
       const COST = costExpr('p')
       const PRICE = priceExpr('p')
-      const THR = thresholdExpr('p')
+      const STATUS = stockStatusExpr('p')
       const rows: Array<Record<string, string | number>> =
         await this.inventoryLevelsRepo.manager.query(
           `SELECT
@@ -1100,23 +1058,21 @@ export class ProductsService {
            COUNT(DISTINCT p.category_id)::int AS "categories",
            COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "catalogValueCost",
            COALESCE(SUM(${PRICE} * ${STOCK}), 0) AS "retailValue",
-           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} > 0 AND ${THR} > 0 AND ${STOCK} <= ${THR} THEN 1 ELSE 0 END), 0)::int AS "lowStock",
-           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
+           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STATUS} = 'LOW' THEN 1 ELSE 0 END), 0)::int AS "lowStock",
+           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STATUS} = 'OUT' THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
          FROM products p
          WHERE p.business_id = $1 AND p.deleted_at IS NULL`,
           [businessId],
         )
       const r = rows[0] ?? {}
-      const catalogValueCost = round2(Number(r.catalogValueCost ?? 0))
-      const retailValue = round2(Number(r.retailValue ?? 0))
-      const blendedMarginPct =
-        retailValue > 0 ? round2(((retailValue - catalogValueCost) / retailValue) * 100) : 0
       return {
         totalSkus: Number(r.totalSkus ?? 0),
         categories: Number(r.categories ?? 0),
-        catalogValueCost,
-        retailValue,
-        blendedMarginPct,
+        // @biztrack/domain catalogValue, as the till.
+        ...catalogValue({
+          costValue: Number(r.catalogValueCost ?? 0),
+          retailValue: Number(r.retailValue ?? 0),
+        }),
         lowStock: Number(r.lowStock ?? 0),
         outOfStock: Number(r.outOfStock ?? 0),
       }
@@ -1144,10 +1100,13 @@ export class ProductsService {
       // displayed "from" price (lowest variant). EXISTS-based, so a stale has_variants
       // flag can't skew it — identical to the desktop's STOCK_EXPR/price.
       this.dataSource.query(
-        `SELECT p.id, (${stockExpr('p')})::float8 AS stock, (${displayPriceExpr('p')})::float8 AS price
+        `SELECT p.id, (${stockExpr('p')})::float8 AS stock, (${displayPriceExpr('p')})::float8 AS price,
+                ${stockStatusExpr('p')} AS stock_status
          FROM products p WHERE p.id = ANY($1::uuid[])`,
         [productIds],
-      ) as Promise<Array<{ id: string; stock: number | null; price: number | null }>>,
+      ) as Promise<
+        Array<{ id: string; stock: number | null; price: number | null; stock_status: StockStatus }>
+      >,
     ])
 
     const levelsByProductId = new Map(levels.map((level) => [level.productId, level]))
@@ -1170,6 +1129,7 @@ export class ProductsService {
         variants: undefined,
         // Derived total: serial-count / sum-of-variants / product-level (null for services).
         currentStock: product.trackInventory ? Number(derived?.stock ?? 0) : null,
+        stockStatus: product.trackInventory ? (derived?.stock_status ?? 'OUT') : null,
         // "From" price: lowest variant price for variant products, else the product price.
         effectiveSellingPrice: Number(derived?.price ?? product.sellingPrice),
         lowStockThreshold: inventory?.lowStockThreshold ?? null,

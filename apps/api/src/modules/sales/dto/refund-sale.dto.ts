@@ -4,7 +4,9 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   IsUUID,
   MaxLength,
@@ -17,9 +19,10 @@ class RefundSaleItemDto {
   @IsUUID()
   saleItemId!: string
 
+  // Up to three decimals, so part of a weighed line can be returned (0.5 kg of 2 kg).
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @IsPositive()
   quantity!: number
 
   @IsOptional()

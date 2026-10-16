@@ -9,6 +9,8 @@ export const APP_ROUTES = {
   reorder: (): string => '/inventory/reorder',
   reports: (): string => '/reports',
   activity: (): string => '/activity',
+  /** Review flags: what the server accepted from a till but the owner should look at. */
+  reviewFlags: (): string => '/activity/review',
   settings: (): string => '/settings',
   contacts: (): string => '/contacts',
   contact: (id: string): string => `/contacts/${id}`,

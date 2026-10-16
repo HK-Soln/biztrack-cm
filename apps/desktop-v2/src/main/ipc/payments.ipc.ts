@@ -159,12 +159,8 @@ export function registerPaymentsIpc(http: HttpClient): void {
   ipcMain.handle(
     IPC.paymentLinksCancel,
     async (_e, id: string) =>
-      (
-        await http.post<ApiEnvelope<void>>(
-          `/payment-links/${encodeURIComponent(id)}/cancel`,
-          {},
-        )
-      ).data.data,
+      (await http.post<ApiEnvelope<void>>(`/payment-links/${encodeURIComponent(id)}/cancel`, {}))
+        .data.data,
   )
   ipcMain.handle(
     IPC.paymentLinksFinalize,

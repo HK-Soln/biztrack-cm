@@ -1,3 +1,4 @@
+import { priceOrderLines } from '@biztrack/domain'
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -53,10 +54,15 @@ export function PoForm() {
   useEffect(() => {
     if (!supplierParam || supplierId) return
     const s = suppliers.find((x) => x.id === supplierParam)
-    if (s) { setSupplierId(s.id); setSupplierName(s.name) }
+    if (s) {
+      setSupplierId(s.id)
+      setSupplierName(s.name)
+    }
   }, [supplierParam, supplierId, suppliers])
 
-  const total = items.reduce((s, l) => s + num(l.quantity) * num(l.unitPrice), 0)
+  const total = priceOrderLines(
+    items.map((l) => ({ quantity: num(l.quantity), unitPrice: num(l.unitPrice) })),
+  ).total
 
   const create = useMutation({
     mutationFn: (_opts: { send: boolean }) => {
@@ -65,12 +71,18 @@ export function PoForm() {
         title: title.trim() || undefined,
         messageBody: message.trim() || undefined,
         expectedDate: expectedDate || undefined,
-        items: items.map((l) => ({ productId: l.productId, variantId: l.variantId ?? null, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) })),
+        items: items.map((l) => ({
+          productId: l.productId,
+          variantId: l.variantId ?? null,
+          quantity: num(l.quantity) || 1,
+          unitPrice: num(l.unitPrice),
+        })),
       }
       return dataClient.purchaseOrders.create(payload)
     },
     // When "Create & send", land on the PO detail with the share dialog opened.
-    onSuccess: (po, vars) => navigate(`/purchasing/orders/${po.id}`, vars.send ? { state: { share: true } } : undefined),
+    onSuccess: (po, vars) =>
+      navigate(`/purchasing/orders/${po.id}`, vars.send ? { state: { share: true } } : undefined),
     onError: (e) => setError(errorMessage(e, t('po.saveError'))),
   })
 
@@ -86,7 +98,9 @@ export function PoForm() {
   return (
     <div className="frame">
       <button type="button" className="back-btn" onClick={() => navigate('/purchasing/orders')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M15 18l-6-6 6-6" /></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
         {t('po.title')}
       </button>
 
@@ -98,14 +112,24 @@ export function PoForm() {
       </div>
 
       <div className="card">
-        <div className="card-h"><div><h3>{t('po.details')}</h3></div></div>
+        <div className="card-h">
+          <div>
+            <h3>{t('po.details')}</h3>
+          </div>
+        </div>
         <div className="form-2col">
           <div className="ff" style={{ marginBottom: 12 }}>
-            <label className="lbl2">{t('po.supplier')} <span className="req">*</span></label>
+            <label className="lbl2">
+              {t('po.supplier')} <span className="req">*</span>
+            </label>
             <CommandSelect
               value={supplierId}
               valueLabel={supplierName}
-              onChange={(id, opt) => { setSupplierId(id); setSupplierName(opt?.label ?? null); setError(null) }}
+              onChange={(id, opt) => {
+                setSupplierId(id)
+                setSupplierName(opt?.label ?? null)
+                setError(null)
+              }}
               loadOptions={loadSuppliers}
               placeholder={t('po.pickSupplier')}
               searchPlaceholder={t('field.searchSuppliers')}
@@ -114,35 +138,81 @@ export function PoForm() {
           </div>
           <div className="ff" style={{ marginBottom: 12 }}>
             <label className="lbl2">{t('po.expected')}</label>
-            <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+            <Input
+              type="date"
+              value={expectedDate}
+              onChange={(e) => setExpectedDate(e.target.value)}
+            />
           </div>
         </div>
         <div className="ff" style={{ marginBottom: 12 }}>
           <label className="lbl2">{t('po.fieldTitle')}</label>
-          <Input value={title} placeholder={t('po.titlePh')} onChange={(e) => setTitle(e.target.value)} />
+          <Input
+            value={title}
+            placeholder={t('po.titlePh')}
+            onChange={(e) => setTitle(e.target.value)}
+          />
         </div>
         <div className="ff">
           <label className="lbl2">{t('po.message')}</label>
-          <textarea className="ta" rows={2} value={message} placeholder={t('po.messagePh')} onChange={(e) => setMessage(e.target.value)} style={{ width: '100%', resize: 'vertical' }} />
+          <textarea
+            className="ta"
+            rows={2}
+            value={message}
+            placeholder={t('po.messagePh')}
+            onChange={(e) => setMessage(e.target.value)}
+            style={{ width: '100%', resize: 'vertical' }}
+          />
         </div>
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
-        <div className="card-h"><div><h3>{t('po.items')}</h3></div></div>
-        <ItemsField value={items} onChange={(v) => { setItems(v); setError(null) }} withPrice />
+        <div className="card-h">
+          <div>
+            <h3>{t('po.items')}</h3>
+          </div>
+        </div>
+        <ItemsField
+          value={items}
+          onChange={(v) => {
+            setItems(v)
+            setError(null)
+          }}
+          withPrice
+        />
         {items.length > 0 ? (
           <div className="totals" style={{ marginLeft: 'auto', width: 260, marginTop: 12 }}>
-            <div className="row grand" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>{t('po.total')}</span><span>{money.format(total)}</span></div>
+            <div
+              className="row grand"
+              style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}
+            >
+              <span>{t('po.total')}</span>
+              <span>{money.format(total)}</span>
+            </div>
           </div>
         ) : null}
       </div>
 
-      {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 12 }} role="alert">{error}</p> : null}
+      {error ? (
+        <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 12 }} role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-        <Button variant="soft" onClick={() => navigate('/purchasing/orders')} disabled={create.isPending}>{t('po.cancel')}</Button>
-        <Button variant="soft" loading={create.isPending} onClick={() => submit(false)}>{t('po.create')}</Button>
-        <Button variant="primary" loading={create.isPending} onClick={() => submit(true)}>{t('po.createSend')}</Button>
+        <Button
+          variant="soft"
+          onClick={() => navigate('/purchasing/orders')}
+          disabled={create.isPending}
+        >
+          {t('po.cancel')}
+        </Button>
+        <Button variant="soft" loading={create.isPending} onClick={() => submit(false)}>
+          {t('po.create')}
+        </Button>
+        <Button variant="primary" loading={create.isPending} onClick={() => submit(true)}>
+          {t('po.createSend')}
+        </Button>
       </div>
     </div>
   )

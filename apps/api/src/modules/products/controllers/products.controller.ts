@@ -29,7 +29,11 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import type { AuditContext } from '@biztrack/types'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
-import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
+import {
+  RequireResource,
+  RequireStaffAction,
+  ResourceGuard,
+} from '@/modules/permissions/guards/resource.guard'
 import { ListProductsQueryDto } from '../dto/list-products-query.dto'
 import { AssignBarcodeDto } from '../dto/assign-barcode.dto'
 import { CreateProductDto } from '../dto/create-product.dto'
@@ -249,6 +253,7 @@ export class ProductsController {
   }
 
   @Delete(':id')
+  @RequireStaffAction('PRODUCT_DELETE')
   @RequireResource(Resource.PRODUCTS_DELETE)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Soft delete a product' })

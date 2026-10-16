@@ -1,10 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { IsBoolean, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
-import type {
-  CreateAttributeOptionRequest,
-  UpdateAttributeOptionRequest,
-} from '@biztrack/types'
+import type { CreateAttributeOptionRequest, UpdateAttributeOptionRequest } from '@biztrack/types'
 
 const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/
 

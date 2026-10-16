@@ -5,7 +5,7 @@ import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
 import { loadReceiptPrintSettings } from '@/lib/receipt-print-settings'
-import { formatSaleTime, saleInitials, salePayLabel, saleStatusInfo } from './sale-format'
+import { formatSaleTime, saleInitials, salePaidByLabel, saleStatusInfo } from './sale-format'
 
 const I = {
   print: (
@@ -75,7 +75,7 @@ export function SaleReceiptView({ saleId }: { saleId: string }) {
             <span className="d" />
             {st.label}
           </span>
-          <span className="chip-tag">{salePayLabel(t, sale.paymentMethod)}</span>
+          <span className="chip-tag">{salePaidByLabel(t, sale)}</span>
           <span className="chip-tag">{formatSaleTime(sale.soldAt, lang)}</span>
         </div>
       </div>

@@ -26,7 +26,9 @@ export class AddSerialUnitInputDto implements AddSerialUnitInput {
   @IsEnum(SerialType)
   serialType!: SerialType
 
-  @ApiPropertyOptional({ description: 'Variant to attach to (required when the product has variants).' })
+  @ApiPropertyOptional({
+    description: 'Variant to attach to (required when the product has variants).',
+  })
   @IsOptional()
   @IsUUID()
   variantId?: string | null

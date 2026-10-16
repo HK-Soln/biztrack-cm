@@ -11,6 +11,7 @@ import { UnitOfMeasureDto } from './unit-of-measure-response.dto'
 import { UserDto } from './user.dto'
 import { ProductImageDto } from './product-image-response.dto'
 import { toIsoString } from '@/common/http/serialization'
+import { type StockStatus } from '@biztrack/domain'
 
 type ProductModel = {
   id: string
@@ -48,6 +49,8 @@ type ProductModel = {
   createdBy?: Parameters<typeof UserDto.fromModel>[0]
   images?: Array<Parameters<typeof ProductImageDto.fromEntity>[0]>
   currentStock?: number | null
+  /** Where the stock stands (@biztrack/domain productStockStatus); null when untracked. */
+  stockStatus?: StockStatus | null
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   primaryImageUrl?: string | null
@@ -101,6 +104,7 @@ export class ProductResponseDto implements Product {
   createdBy?: UserDto | null
   images!: ProductImageDto[]
   currentStock?: number | null
+  stockStatus?: StockStatus | null
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   primaryImageUrl?: string | null
@@ -158,6 +162,7 @@ export class ProductResponseDto implements Product {
       .map((image) => ProductImageDto.fromEntity(image))
       .filter((image): image is ProductImageDto => image !== null)
     dto.currentStock = model.currentStock ?? null
+    dto.stockStatus = model.stockStatus ?? null
     dto.lowStockThreshold = model.lowStockThreshold ?? null
     dto.reorderPoint = model.reorderPoint ?? null
     dto.primaryImageUrl = model.primaryImageUrl ?? null

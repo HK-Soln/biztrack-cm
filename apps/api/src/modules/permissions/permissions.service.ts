@@ -304,10 +304,7 @@ export class PermissionsService {
         continue
       }
 
-      ttlSeconds = Math.min(
-        ttlSeconds,
-        Math.floor((override.expiresAt.getTime() - nowMs) / 1000),
-      )
+      ttlSeconds = Math.min(ttlSeconds, Math.floor((override.expiresAt.getTime() - nowMs) / 1000))
     }
 
     return ttlSeconds > 0 ? ttlSeconds : null

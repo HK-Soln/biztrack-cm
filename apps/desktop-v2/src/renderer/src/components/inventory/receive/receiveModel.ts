@@ -1,4 +1,5 @@
 import { PaymentMethod } from '@biztrack/types'
+import { restockAdjustmentAmount, restockTotals, toWholeXaf } from '@biztrack/domain'
 import type {
   RestockChargeLineInput,
   RestockDiscountLineInput,
@@ -10,7 +11,6 @@ import type {
 // submit so the totals shown, the credit computed, and the payload sent can never disagree.
 
 export const num = (s: string): number => (s.trim() ? Number(s.replace(/\s/g, '')) : 0)
-export const round2 = (n: number): number => Math.round(n * 100) / 100
 export const newId = (): string => crypto.randomUUID()
 
 export const TENDERS: PaymentMethod[] = [
@@ -42,10 +42,19 @@ export interface PaymentRow {
   momoRef: string
 }
 
+// The amounts are @biztrack/domain's, so the totals shown are the ones the receipt is saved with.
 export const chargeAmt = (c: ChargeRow, subtotal: number): number =>
-  round2(c.rateType === 'PERCENT' ? subtotal * (num(c.value) / 100) : num(c.value))
+  restockAdjustmentAmount({
+    kind: c.rateType === 'PERCENT' ? 'PERCENT' : 'FIXED',
+    value: num(c.value),
+    subtotal,
+  })
 export const discAmt = (d: DiscountRow, subtotal: number): number =>
-  round2(d.discountType === 'PERCENTAGE' ? subtotal * (num(d.value) / 100) : num(d.value))
+  restockAdjustmentAmount({
+    kind: d.discountType === 'PERCENTAGE' ? 'PERCENT' : 'FIXED',
+    value: num(d.value),
+    subtotal,
+  })
 
 export interface ReceiveTotals {
   chargesAmount: number
@@ -63,11 +72,14 @@ export function computeTotals(
   discounts: DiscountRow[],
   payments: PaymentRow[],
 ): ReceiveTotals {
-  const chargesAmount = round2(charges.reduce((s, c) => s + chargeAmt(c, subtotal), 0))
-  const discountAmount = round2(discounts.reduce((s, d) => s + discAmt(d, subtotal), 0))
-  const total = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
-  const paid = round2(payments.reduce((s, p) => s + num(p.amount), 0))
-  const balance = round2(total - paid)
+  const totals = restockTotals({
+    subtotal,
+    charges: charges.map((c) => chargeAmt(c, subtotal)),
+    discounts: discounts.map((d) => discAmt(d, subtotal)),
+  })
+  const { chargesAmount, discountAmount, totalAmount: total } = totals
+  const paid = toWholeXaf(payments.reduce((s, p) => s + Math.max(0, num(p.amount)), 0))
+  const balance = total - paid
   return {
     chargesAmount,
     discountAmount,

@@ -1,6 +1,7 @@
 import {
   compareSyncEntityByDependency,
   type ChangeSet,
+  type DebtStatus,
   type DebtSyncRecord,
   type SyncBatchStatus,
   type SyncBatchStatusResponse,
@@ -9,6 +10,7 @@ import {
   type SyncPushResponse,
   type SyncRecord,
 } from '@biztrack/types'
+import { contactNameKey, debtAfterChange } from '@biztrack/domain'
 import type { DatabaseService } from './database.service'
 
 /**
@@ -343,6 +345,7 @@ const ROLE_MAP: Record<string, string> = {
   max_cart_discount_percent: 'maxCartDiscountPercent',
   max_discount_amount_xaf: 'maxDiscountAmountXaf',
   allow_below_cost: 'allowBelowCost',
+  limits_version: 'limitsVersion',
   colour: 'colour',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
@@ -988,20 +991,31 @@ export class SyncService {
     }
   }
 
-  /** Recompute a debt's status + settled_at from its current payment sum (mirrors recordPayment). */
+  /** Recompute a debt's status + settled_at from its current payment sum (@biztrack/domain). */
   private recomputeDebtStatus(debtId: string, businessId: string): void {
-    const row = this.opts.db.get<{ original_amount: number; paid: number; status: string }>(
-      `SELECT d.original_amount, d.status,
+    const row = this.opts.db.get<{
+      original_amount: number
+      paid: number
+      status: string
+      settled_at: string | null
+    }>(
+      `SELECT d.original_amount, d.status, d.settled_at,
          COALESCE((SELECT SUM(amount) FROM debt_payments WHERE debt_id = d.id), 0) AS paid
        FROM debts d WHERE d.id = ? AND d.business_id = ?`,
       [debtId, businessId],
     )
-    if (!row || row.status === 'WRITTEN_OFF') return
-    const settled = row.paid >= row.original_amount - 1e-6
-    const status = settled ? 'SETTLED' : row.paid > 0 ? 'PARTIALLY_PAID' : 'OUTSTANDING'
+    if (!row) return
+    // A written-off debt stays written off (@biztrack/domain debtAfterChange, as the server).
+    const next = debtAfterChange({
+      originalAmount: row.original_amount,
+      paidAmount: row.paid,
+      status: row.status as DebtStatus,
+      settledAt: row.settled_at,
+      at: new Date().toISOString(),
+    })
     this.opts.db.run(
       `UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
-      [status, settled ? new Date().toISOString() : null, debtId, businessId],
+      [next.status, next.settledAt, debtId, businessId],
     )
   }
 
@@ -1085,19 +1099,23 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO contacts
-        (id, business_id, type, name, phone, phone_alt, address, notes, is_active, created_by_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, type, name, name_key, phone, phone_alt, email, address, notes, is_active, created_by_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          type = excluded.type, name = excluded.name, phone = excluded.phone,
-          phone_alt = excluded.phone_alt, address = excluded.address, notes = excluded.notes,
+          type = excluded.type, name = excluded.name, name_key = excluded.name_key,
+          phone = excluded.phone, phone_alt = excluded.phone_alt, email = excluded.email,
+          address = excluded.address, notes = excluded.notes,
           is_active = excluded.is_active, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(c.businessId),
         asStr(c.type),
         asStr(c.name),
+        // The name's slug, unique in the business (ruling R16, @biztrack/domain).
+        contactNameKey(asStr(c.name) ?? ''),
         asStr(c.phone),
         asStr(c.phoneAlt),
+        asStr(c.email),
         asStr(c.address),
         asStr(c.notes),
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,

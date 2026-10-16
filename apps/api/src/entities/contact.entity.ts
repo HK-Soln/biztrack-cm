@@ -1,5 +1,7 @@
 import {
   BaseEntity as TypeOrmBaseEntity,
+  BeforeInsert,
+  BeforeUpdate,
   Column,
   CreateDateColumn,
   Entity,
@@ -11,6 +13,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm'
 import { ContactType, type IdDocumentType } from '@biztrack/types'
+import { contactNameKey } from '@biztrack/domain'
 import { dateTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
 import { Debt } from './debt.entity'
@@ -35,6 +38,19 @@ export class Contact extends TypeOrmBaseEntity {
 
   @Column({ type: 'varchar', length: 200 })
   name!: string
+
+  /**
+   * The name's slug; unique in the business (ruling R16, index unq_contacts_business_name_key).
+   * Kept in step with the name on every save; an update by query sets it explicitly.
+   */
+  @Column({ name: 'name_key', type: 'varchar', length: 220 })
+  nameKey!: string
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  keyName(): void {
+    if (this.name) this.nameKey = contactNameKey(this.name)
+  }
 
   @Column({ nullable: true, type: 'varchar', length: 30 })
   phone?: string | null

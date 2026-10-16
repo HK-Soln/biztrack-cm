@@ -9,7 +9,7 @@ import {
   PaymentLinkStatus,
   type JwtPayload,
 } from '@biztrack/types'
-import { minorToMajor } from '@biztrack/utils'
+import { minorToMajor } from '@biztrack/domain'
 import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { PaymentLink } from '@/entities/payment-link.entity'
@@ -81,7 +81,12 @@ export class PaymentLinkSettlementService {
       const status = fullyPaid ? PaymentLinkStatus.PAID : PaymentLinkStatus.PARTIALLY_PAID
       await this.links.update(link.id, { amountPaidMinor: newPaid, status })
       this.emit(link, status, newPaid, Number(attempt.amountMinor))
-      void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+      void this.notifyMerchant(
+        link.businessId,
+        link.label,
+        Number(attempt.amountMinor),
+        link.currency,
+      )
       return
     }
 
@@ -123,7 +128,12 @@ export class PaymentLinkSettlementService {
       const status = fullyPaid ? PaymentLinkStatus.PAID : PaymentLinkStatus.PARTIALLY_PAID
       await this.links.update(link.id, { amountPaidMinor: newPaid, status })
       this.emit(link, status, newPaid, Number(attempt.amountMinor))
-      void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+      void this.notifyMerchant(
+        link.businessId,
+        link.label,
+        Number(attempt.amountMinor),
+        link.currency,
+      )
       return
     }
 
@@ -158,7 +168,12 @@ export class PaymentLinkSettlementService {
         : PaymentLinkStatus.PARTIALLY_PAID
     await this.links.update(link.id, { amountPaidMinor: newPaid, status })
     this.emit(link, status, newPaid, Number(attempt.amountMinor))
-    void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+    void this.notifyMerchant(
+      link.businessId,
+      link.label,
+      Number(attempt.amountMinor),
+      link.currency,
+    )
   }
 
   /** Live-push settlement to the merchant's business channel so offline-first desktop screens refresh

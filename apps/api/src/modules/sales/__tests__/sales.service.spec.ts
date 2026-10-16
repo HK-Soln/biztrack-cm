@@ -61,6 +61,7 @@ function makeService() {
     i18n as any,
     { get: () => undefined } as any, // config
     logger as any,
+    {} as any, // reviewFlags
   )
   return service as any
 }
@@ -71,6 +72,7 @@ const product = (over: Partial<Product>): Partial<Product> => ({
   isActive: true,
   hasVariants: false,
   isSerialized: false,
+  trackInventory: true,
   productType: ProductType.SIMPLE,
   sellingPrice: 1000,
   costPrice: 600,
@@ -308,6 +310,29 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(result.totalAmount).toBe(1000)
   })
 
+  it('costs a variant line at the variant’s own cost, else the product’s', () => {
+    const service = makeService()
+    const p = product({
+      id: 'p1',
+      hasVariants: true,
+      sellingPrice: 1000,
+      costPrice: 600,
+    }) as Product
+    const variants = new Map([
+      ['v1', { id: 'v1', name: 'Large', productId: 'p1', costPriceOverride: 750 } as any],
+      ['v2', { id: 'v2', name: 'Small', productId: 'p1', costPriceOverride: null } as any],
+    ])
+    const result = service.computeSale([p], variants, new Map(), {
+      items: [
+        { productId: 'p1', variantId: 'v1', quantity: 1, unitPrice: 1000 },
+        { productId: 'p1', variantId: 'v2', quantity: 1, unitPrice: 1000 },
+      ],
+    })
+    expect(result.items.map((item: { costPrice: number | null }) => item.costPrice)).toEqual([
+      750, 600,
+    ])
+  })
+
   it('preserves a fractional quantity and computes the line total', () => {
     const service = makeService()
     const p = product({
@@ -413,7 +438,11 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
 describe('SalesService.recomputeSaleSettlement (signed ledger)', () => {
   // amountPaid = Σ(PAYMENT) − Σ(REFUND), clamped ≥ 0; creditAmount = max(0, total − amountPaid).
   const mgrWith = (rows: Array<{ kind?: string; amount: number }>) =>
-    ({ getRepository: () => ({ find: jest.fn(async () => rows) }) }) as any
+    ({
+      getRepository: () => ({ find: jest.fn(async () => rows) }),
+      // No returns on these sales: the refund-impact query finds nothing.
+      query: jest.fn(async () => []),
+    }) as any
 
   it('sums PAYMENT rows into amountPaid, leaving the balance as credit', async () => {
     const service = makeService()

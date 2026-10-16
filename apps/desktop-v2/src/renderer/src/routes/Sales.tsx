@@ -11,6 +11,7 @@ import { MobileSheet } from '@/components/MobileSheet'
 import {
   formatSaleTime,
   saleInitials,
+  salePaidByLabel,
   salePayLabel,
   saleStatusInfo,
 } from '@/components/sales/sale-format'
@@ -114,7 +115,7 @@ export function Sales() {
       r.saleNumber,
       r.soldAt,
       r.customerName ?? 'Walk-in',
-      r.paymentMethod ?? (r.creditAmount > 0 ? 'CREDIT' : ''),
+      r.amountPaid <= 0 && r.creditAmount > 0 ? 'CREDIT' : (r.paymentMethod ?? ''),
       r.subtotal,
       r.discountAmount,
       r.chargesAmount,
@@ -235,7 +236,7 @@ export function Sales() {
                     {r.name} · #{s.saleNumber}
                   </div>
                   <div className="sub">
-                    {salePayLabel(t, s.paymentMethod)} · {formatSaleTime(s.soldAt, lang)}
+                    {salePaidByLabel(t, s)} · {formatSaleTime(s.soldAt, lang)}
                   </div>
                 </div>
                 <div className="rt">
@@ -361,7 +362,7 @@ export function Sales() {
                         {r.name} · #{s.saleNumber}
                       </div>
                       <div className="sub">
-                        {salePayLabel(t, s.paymentMethod)} · {formatSaleTime(s.soldAt, lang)}
+                        {salePaidByLabel(t, s)} · {formatSaleTime(s.soldAt, lang)}
                       </div>
                     </div>
                     <div className="rt">
@@ -529,7 +530,7 @@ export function Sales() {
                       {s.customerName ?? t('sales.walkIn')}
                     </td>
                     <td>
-                      <span className="pill-tag">{salePayLabel(t, s.paymentMethod)}</span>
+                      <span className="pill-tag">{salePaidByLabel(t, s)}</span>
                     </td>
                     <td className="right num">{money.format(s.totalAmount)}</td>
                     <td>

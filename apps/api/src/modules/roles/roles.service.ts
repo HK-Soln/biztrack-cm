@@ -26,6 +26,7 @@ import {
   PERMISSION_KEYS,
   SYSTEM_ROLE_PERMISSIONS,
 } from './permissions.catalogue'
+import { recordFirstRoleLimitVersion, recordRoleLimitChange } from './role-limit-versions'
 
 @Injectable()
 export class RolesService {
@@ -232,20 +233,24 @@ export class RolesService {
       colour: dto.colour ?? null,
       createdBy: actor.sub,
     })
-    await this.rolesRepo.save(role)
+    // The role and the first version of its discount policy are stored together (R2).
+    await this.rolesRepo.manager.transaction(async (manager) => {
+      await manager.getRepository(Role).save(role)
+      await recordFirstRoleLimitVersion(manager, role)
 
-    if (dto.permissions.length) {
-      const permEntities = dto.permissions.map((perm) =>
-        this.rolePermsRepo.create({
-          roleId: role.id,
-          businessId,
-          permission: perm,
-          grantedAt: new Date(),
-          grantedBy: actor.sub,
-        }),
-      )
-      await this.rolePermsRepo.save(permEntities)
-    }
+      if (dto.permissions.length) {
+        const permEntities = dto.permissions.map((perm) =>
+          this.rolePermsRepo.create({
+            roleId: role.id,
+            businessId,
+            permission: perm,
+            grantedAt: new Date(),
+            grantedBy: actor.sub,
+          }),
+        )
+        await manager.getRepository(RolePermission).save(permEntities)
+      }
+    })
 
     return this.getRole(role.id, businessId)
   }
@@ -272,20 +277,27 @@ export class RolesService {
         throw new AppConflictException('A role with this name already exists', 'ROLE_NAME_CONFLICT')
     }
 
-    await this.rolesRepo.update(id, {
-      ...(canRename && dto.name !== undefined && { name: dto.name }),
-      ...(dto.description !== undefined && { description: dto.description }),
-      ...(dto.colour !== undefined && { colour: dto.colour }),
-      ...(dto.canAuthorize !== undefined && { canAuthorize: dto.canAuthorize }),
-      ...(dto.tracksCashDrawer !== undefined && { tracksCashDrawer: dto.tracksCashDrawer }),
-      ...(dto.maxDiscountPercent !== undefined && { maxDiscountPercent: dto.maxDiscountPercent }),
-      ...(dto.maxCartDiscountPercent !== undefined && {
-        maxCartDiscountPercent: dto.maxCartDiscountPercent,
-      }),
-      ...(dto.maxDiscountAmountXaf !== undefined && {
-        maxDiscountAmountXaf: dto.maxDiscountAmountXaf,
-      }),
-      ...(dto.allowBelowCost !== undefined && { allowBelowCost: dto.allowBelowCost }),
+    // A change to the discount policy starts a new version of it, in the same transaction,
+    // so sales made before the change are still checked against the old limits (R2).
+    await this.rolesRepo.manager.transaction(async (manager) => {
+      await manager.getRepository(Role).update(id, {
+        ...(canRename && dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.colour !== undefined && { colour: dto.colour }),
+        ...(dto.canAuthorize !== undefined && { canAuthorize: dto.canAuthorize }),
+        ...(dto.tracksCashDrawer !== undefined && { tracksCashDrawer: dto.tracksCashDrawer }),
+        ...(dto.maxDiscountPercent !== undefined && {
+          maxDiscountPercent: dto.maxDiscountPercent,
+        }),
+        ...(dto.maxCartDiscountPercent !== undefined && {
+          maxCartDiscountPercent: dto.maxCartDiscountPercent,
+        }),
+        ...(dto.maxDiscountAmountXaf !== undefined && {
+          maxDiscountAmountXaf: dto.maxDiscountAmountXaf,
+        }),
+        ...(dto.allowBelowCost !== undefined && { allowBelowCost: dto.allowBelowCost }),
+      })
+      await recordRoleLimitChange(manager, role)
     })
 
     return this.getRole(id, businessId)
@@ -475,6 +487,7 @@ export class RolesService {
         createdBy: null,
       })
       await this.rolesRepo.save(role)
+      await recordFirstRoleLimitVersion(this.rolesRepo.manager, role)
 
       const perms = (SYSTEM_ROLE_PERMISSIONS[def.name] ?? []).map((perm) =>
         this.rolePermsRepo.create({

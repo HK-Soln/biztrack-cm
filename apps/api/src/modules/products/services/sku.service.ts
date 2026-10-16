@@ -1,3 +1,9 @@
+import {
+  buildProductSku,
+  normalizeProductSku,
+  PRODUCT_SKU_PATTERN,
+  SKU_RANDOM_ALPHABET,
+} from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { Not } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
@@ -18,11 +24,10 @@ export class SkuService {
   }
 
   async generate(businessId: string, categorySlug?: string): Promise<string> {
-    const prefix = this.getCategoryPrefix(categorySlug)
-    const timestamp = Date.now().toString(36).toUpperCase().slice(-6)
-
+    // The shape is @biztrack/domain's, the one the till uses for products made offline.
+    const now = Date.now()
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const sku = `${prefix}-${timestamp}-${this.randomAlphanumeric(4)}`
+      const sku = buildProductSku({ categorySlug, now, random: this.randomAlphanumeric(4) })
       const exists = await this.productsRepo.findOne({ where: { businessId, sku } })
       if (!exists) return sku
     }
@@ -34,9 +39,10 @@ export class SkuService {
   }
 
   async validateAndNormalize(businessId: string, sku: string, excludeProductId?: string) {
-    const normalized = sku.trim().toUpperCase()
+    // Shape and normalisation are @biztrack/domain's, as on the till.
+    const normalized = normalizeProductSku(sku) ?? ''
 
-    if (!/^[A-Z0-9\-_]{1,100}$/.test(normalized)) {
+    if (!PRODUCT_SKU_PATTERN.test(normalized)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.invalid_sku_format'),
         'INVALID_SKU_FORMAT',
@@ -53,27 +59,16 @@ export class SkuService {
     })
 
     if (existing) {
-      throw new AppConflictException(
-        await this.i18n.translate('errors.sku_in_use'),
-        'SKU_IN_USE',
-      )
+      throw new AppConflictException(await this.i18n.translate('errors.sku_in_use'), 'SKU_IN_USE')
     }
 
     return normalized
   }
 
-  private getCategoryPrefix(categorySlug?: string) {
-    if (!categorySlug) return 'GEN'
-
-    return categorySlug
-      .replace(/-/g, '')
-      .toUpperCase()
-      .slice(0, 3)
-      .padEnd(3, 'X')
-  }
-
   private randomAlphanumeric(length: number) {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+    const alphabet = SKU_RANDOM_ALPHABET
+    return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join(
+      '',
+    )
   }
 }

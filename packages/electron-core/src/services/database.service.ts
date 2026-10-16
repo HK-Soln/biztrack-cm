@@ -56,6 +56,15 @@ export class DatabaseService {
     return transaction(operations)
   }
 
+  /**
+   * Run `fn` atomically: every write it makes commits together, or none does when it
+   * throws. Synchronous by design (a better-sqlite3 transaction cannot span an `await`).
+   * A nested call joins the outer transaction as a savepoint.
+   */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)()
+  }
+
   /** The underlying connection, for advanced callers (e.g. custom transactions). */
   get connection(): Database.Database {
     return this.db

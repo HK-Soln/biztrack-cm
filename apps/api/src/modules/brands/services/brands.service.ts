@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { slugify, uniqueSlug } from '@biztrack/domain'
 import { InjectRepository } from '@nestjs/typeorm'
-import { DataSource, EntityManager, In, IsNull, Not, Repository } from 'typeorm'
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
   AuditContext,
@@ -18,6 +19,11 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { Brand } from '@/entities/brand.entity'
+import {
+  applyBrandRemoval,
+  decideModelRemoval,
+  loadBrandRemovalPlan,
+} from '@/modules/products/catalog-usage'
 import { BrandCategory } from '@/entities/brand-category.entity'
 import { Model } from '@/entities/model.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -29,6 +35,8 @@ import { AuditService } from '@/modules/audit/audit.service'
  * desktop offline brands service, so the cloud app manages brands the same way.
  * Every mutation is audited with the full actor context.
  */
+const BRAND_SLUG_MAX = 120
+
 @Injectable()
 export class BrandsService {
   constructor(
@@ -102,7 +110,7 @@ export class BrandsService {
 
   async create(businessId: string, dto: CreateBrandRequest, context: AuditContext): Promise<Brand> {
     try {
-      const slug = await this.uniqueSlug(this.slugify(dto.name), businessId)
+      const slug = await this.uniqueSlug(dto.name, businessId)
       const id = await this.dataSource.transaction(async (manager) => {
         const brand = await manager.getRepository(Brand).save(
           manager.getRepository(Brand).create({
@@ -159,7 +167,7 @@ export class BrandsService {
           isActive: dto.isActive ?? brand.isActive,
         }
         if (dto.name && dto.name.trim() !== brand.name) {
-          patch.slug = await this.uniqueSlug(this.slugify(dto.name), businessId, id)
+          patch.slug = await this.uniqueSlug(dto.name, businessId, id)
         }
         await manager.getRepository(Brand).update({ id, businessId }, patch)
         if (dto.categoryIds) await this.syncLinks(manager, businessId, id, dto.categoryIds)
@@ -189,29 +197,17 @@ export class BrandsService {
   async remove(id: string, businessId: string, context: AuditContext): Promise<void> {
     try {
       const brand = await this.findById(id, businessId)
-      const [inUse] = await this.brandsRepo.manager.query(
-        `SELECT 1 FROM products WHERE brand_id = $1 AND business_id = $2 AND deleted_at IS NULL LIMIT 1`,
-        [id, businessId],
-      )
-      if (inUse) {
+      const plan = await loadBrandRemovalPlan(this.brandsRepo.manager, businessId, id)
+      if (!plan.ok) {
         throw new AppConflictException(
           'This brand is still used by one or more products and cannot be deleted.',
           'BRAND_IN_USE',
         )
       }
       const now = new Date()
-      await this.dataSource.transaction(async (manager) => {
-        await manager
-          .getRepository(Model)
-          .update(
-            { brandId: id, businessId, deletedAt: IsNull() },
-            { isActive: false, deletedAt: now },
-          )
-        await manager.getRepository(BrandCategory).softDelete({ brandId: id, businessId })
-        await manager
-          .getRepository(Brand)
-          .update({ id, businessId }, { isActive: false, deletedAt: now })
-      })
+      await this.dataSource.transaction((manager) =>
+        applyBrandRemoval(manager, businessId, plan, now),
+      )
       this.auditService.log(context, {
         action: 'DELETE',
         entityType: 'brand',
@@ -237,7 +233,7 @@ export class BrandsService {
           businessId,
           brandId,
           name: dto.name.trim(),
-          slug: this.slugify(dto.name) || null,
+          slug: slugify(dto.name, BRAND_SLUG_MAX) || null,
           sortOrder: dto.sortOrder ?? 0,
           isActive: true,
         }),
@@ -269,7 +265,7 @@ export class BrandsService {
         { id: modelId },
         {
           name: dto.name?.trim() ?? model.name,
-          slug: dto.name ? this.slugify(dto.name) || null : model.slug,
+          slug: dto.name ? slugify(dto.name, BRAND_SLUG_MAX) || null : model.slug,
           sortOrder: dto.sortOrder ?? model.sortOrder,
           isActive: dto.isActive ?? model.isActive,
         },
@@ -296,11 +292,7 @@ export class BrandsService {
   ): Promise<void> {
     try {
       const model = await this.requireModel(brandId, modelId, businessId)
-      const [inUse] = await this.modelsRepo.manager.query(
-        `SELECT 1 FROM products WHERE model_id = $1 AND business_id = $2 AND deleted_at IS NULL LIMIT 1`,
-        [modelId, businessId],
-      )
-      if (inUse) {
+      if (await decideModelRemoval(this.modelsRepo.manager, businessId, modelId)) {
         throw new AppConflictException(
           'This model is still used by one or more products and cannot be deleted.',
           'MODEL_IN_USE',
@@ -355,30 +347,24 @@ export class BrandsService {
     return model
   }
 
-  private async uniqueSlug(base: string, businessId: string, excludeId?: string): Promise<string> {
-    const root = base || 'brand'
-    let slug = root
-    let n = 2
-    while (true) {
-      const clash = await this.brandsRepo.findOne({
-        where: { businessId, slug, ...(excludeId ? { id: Not(excludeId) } : {}) },
-        withDeleted: true,
-      })
-      if (!clash) return slug
-      slug = `${root}-${n++}`
-    }
-  }
-
-  private slugify(value: string): string {
-    return value
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .trim()
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .slice(0, 120)
+  /** The brand's slug by @biztrack/domain's uniqueSlug, the rule the till uses too (R12). */
+  private async uniqueSlug(name: string, businessId: string, excludeId?: string): Promise<string> {
+    const base = slugify(name, BRAND_SLUG_MAX) || 'brand'
+    // withDeleted: the unique slug index counts soft-deleted brands.
+    const qb = this.brandsRepo
+      .createQueryBuilder('b')
+      .withDeleted()
+      .select('b.slug', 'slug')
+      .where('b.business_id = :businessId', { businessId })
+      .andWhere('(b.slug = :base OR b.slug LIKE :numbered)', { base, numbered: `${base}-%` })
+    if (excludeId) qb.andWhere('b.id <> :excludeId', { excludeId })
+    const rows = (await qb.getRawMany()) as Array<{ slug: string | null }>
+    return uniqueSlug(
+      name,
+      rows.map((r) => r.slug).filter((v): v is string => !!v),
+      'brand',
+      BRAND_SLUG_MAX,
+    )
   }
 
   private async handleServiceError(

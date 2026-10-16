@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
-import { computeBusinessDate } from '@biztrack/utils'
+import { computeBusinessDate } from '@biztrack/domain'
 import { Business } from '@/entities/business.entity'
 import { CashSession } from '@/entities/cash-session.entity'
 

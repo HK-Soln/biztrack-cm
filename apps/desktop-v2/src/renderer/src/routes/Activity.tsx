@@ -6,6 +6,7 @@ import { useCurrency } from '@/lib/currency'
 import { useCanManage } from '@/lib/useCanManage'
 import { useLangStore, useT } from '@/i18n'
 import { SaleDetailDrawer } from '@/components/sales/SaleDetailDrawer'
+import { ReviewFlagsBanner } from '@/components/activity/ReviewFlagsNotice'
 import {
   auditDeepLink,
   auditMeta,
@@ -299,6 +300,8 @@ export function Activity() {
           ))}
         </span>
       </div>
+
+      <ReviewFlagsBanner />
 
       <div className="minihead">
         <div className="m">

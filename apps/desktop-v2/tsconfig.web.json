@@ -16,6 +16,7 @@
       "@/*": ["./src/renderer/src/*"],
       "@shared/*": ["./src/shared/*"],
       "@biztrack/types": ["../../packages/types/src"],
+      "@biztrack/domain": ["../../packages/domain/src"],
       "@biztrack/utils": ["../../packages/utils/src"],
       "@biztrack/ui/biztrack": ["../../packages/ui/src/biztrack/index.ts"]
     }

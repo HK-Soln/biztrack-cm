@@ -2,11 +2,19 @@ import { CanActivate, ExecutionContext, Injectable, SetMetadata } from '@nestjs/
 import { Reflector } from '@nestjs/core'
 import { PermissionsService } from '../permissions.service'
 import type { Resource } from '@biztrack/types'
+import { staffMay, type StaffAction } from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { AppForbiddenException } from '@/common/exceptions/app-exceptions'
 
 export const RequireResource = (resource: Resource) => SetMetadata('required_resource', resource)
+
+/**
+ * The member's role must allow the action, by @biztrack/domain's staffMay (ruling R21).
+ * Checked by ResourceGuard after the plan check.
+ */
+export const RequireStaffAction = (action: StaffAction) =>
+  SetMetadata('required_staff_action', action)
 
 @Injectable()
 export class ResourceGuard implements CanActivate {
@@ -23,9 +31,20 @@ export class ResourceGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ])
+    const staffAction = this.reflector.get<StaffAction | undefined>(
+      'required_staff_action',
+      context.getHandler(),
+    )
+    const req = context.switchToHttp().getRequest()
+    if (staffAction && !staffMay(req.user?.role, staffAction)) {
+      throw new AppForbiddenException(
+        await this.i18n.translate('errors.staff_action_forbidden'),
+        'STAFF_ACTION_FORBIDDEN',
+        { action: staffAction },
+      )
+    }
     if (!required) return true
 
-    const req = context.switchToHttp().getRequest()
     const businessId = req.user?.businessId
     if (!businessId) {
       throw new AppForbiddenException()

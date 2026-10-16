@@ -58,6 +58,10 @@ export class SaleReturn extends TypeOrmBaseEntity {
   @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
   createdById?: string | null
 
+  /** The local trading day the return was made on: the day its refund is booked. */
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date
 

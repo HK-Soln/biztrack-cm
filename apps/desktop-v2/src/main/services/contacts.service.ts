@@ -1,5 +1,19 @@
+import {
+  checkContactArchive,
+  checkContactInput,
+  contactNameKey,
+  contactsSummary,
+  debtOutstandingSql,
+  findContactClashes,
+  mergeContact,
+  normalizeEmail,
+  normalizePhone,
+  openDebtSql,
+  type ContactDuplicate,
+} from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
+import type { ContactType } from '@biztrack/types'
 import type {
   ContactsQuery,
   ContactsSummary,
@@ -45,18 +59,22 @@ const C_COLS = COLS.split(', ')
   .map((c) => `c.${c}`)
   .join(', ')
 
-// Outstanding per debt = original_amount − settled payments, for live debts only.
-// Computed inline so a contact's balances reflect the local debts table (populated
-// once supplier payables land). Safe (returns 0) before any debt exists.
-const OUTSTANDING = `(d.original_amount - COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0))`
-// A contact's outstanding balance = the sum of live debts. The opening balance is itself an
-// OPENING_BALANCE debt now (see [[opening-balance-as-debt]]), so it is already in this SUM —
-// do NOT add contact_opening_balances on top or it double-counts.
+// What is still owed on a debt (@biztrack/domain debtOutstandingSql, the rule of
+// debtBalance and contactBalances): an open debt's unpaid amount in whole francs, never below
+// zero; nothing on a settled or written-off debt.
+const OUTSTANDING = debtOutstandingSql({
+  status: 'd.status',
+  original: 'd.original_amount',
+  paid: 'COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0)',
+})
+const OPEN = openDebtSql('d.status')
+// A contact's balance = what is owed on its debts. The opening balance is itself an
+// OPENING_BALANCE debt (see [[opening-balance-as-debt]]), so it is already in this SUM.
 const BALANCE_COLS = `,
-  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'RECEIVABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS total_receivable,
-  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'PAYABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS total_payable,
-  COALESCE((SELECT COUNT(*) FROM debts d WHERE d.contact_id = c.id AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS open_debts,
-  (SELECT MIN(d.created_at) FROM debts d WHERE d.contact_id = c.id AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')) AS oldest_unpaid`
+  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'RECEIVABLE'), 0) AS total_receivable,
+  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'PAYABLE'), 0) AS total_payable,
+  COALESCE((SELECT COUNT(*) FROM debts d WHERE d.contact_id = c.id AND ${OPEN}), 0) AS open_debts,
+  (SELECT MIN(d.created_at) FROM debts d WHERE d.contact_id = c.id AND ${OPEN}) AS oldest_unpaid`
 
 /**
  * Offline-first contacts (customers & suppliers). Reads from local SQLite; writes go
@@ -64,6 +82,16 @@ const BALANCE_COLS = `,
  * the API contacts endpoints (GET/POST /contacts, PATCH/DELETE /contacts/:id). Delete is
  * a deactivation (is_active=0), blocked when the contact has open debts — same as the API.
  */
+const NAME_TAKEN_MESSAGE = 'Another contact already has this name.'
+
+/**
+ * CONTACT_DUPLICATE as it crosses to the screen: the code and the contact it matched travel
+ * in the message (Electron passes only the message), read back by contact-duplicate.ts.
+ */
+function contactDuplicateError(duplicate: ContactDuplicate): Error {
+  return new Error(`CONTACT_DUPLICATE ${JSON.stringify(duplicate)}`)
+}
+
 export class ContactsService {
   constructor(
     private readonly db: DatabaseService,
@@ -90,7 +118,7 @@ export class ContactsService {
     }
     if (query.balance === 'debtor' || query.balance === 'creditor') {
       const dir = query.balance === 'debtor' ? 'RECEIVABLE' : 'PAYABLE'
-      where += ` AND EXISTS (SELECT 1 FROM debts d WHERE d.contact_id = c.id AND d.direction = '${dir}' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID'))`
+      where += ` AND EXISTS (SELECT 1 FROM debts d WHERE d.contact_id = c.id AND d.direction = '${dir}' AND ${OPEN})`
     }
 
     const { rows, ...meta } = paginateRows<ContactListRow>(
@@ -126,36 +154,22 @@ export class ContactsService {
     }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
-    const live = "status IN ('OUTSTANDING','PARTIALLY_PAID')"
-    const row = this.db.get<{
-      tr: number
-      tp: number
-      ac: number
-      cc: number
-      sc: number
-      dc: number
-      cr: number
-    }>(
-      `SELECT
-         (SELECT COALESCE(SUM(${OUTSTANDING}), 0) FROM debts d WHERE d.business_id = ? AND d.direction = 'RECEIVABLE' AND ${live}) AS tr,
-         (SELECT COALESCE(SUM(${OUTSTANDING}), 0) FROM debts d WHERE d.business_id = ? AND d.direction = 'PAYABLE' AND ${live}) AS tp,
-         (SELECT COUNT(*) FROM contacts WHERE business_id = ? AND is_active = 1) AS ac,
-         (SELECT COUNT(*) FROM contacts WHERE business_id = ? AND is_active = 1 AND type IN ('CUSTOMER','BOTH')) AS cc,
-         (SELECT COUNT(*) FROM contacts WHERE business_id = ? AND is_active = 1 AND type IN ('SUPPLIER','BOTH')) AS sc,
-         (SELECT COUNT(DISTINCT d.contact_id) FROM debts d WHERE d.business_id = ? AND d.direction = 'RECEIVABLE' AND ${live}) AS dc,
-         (SELECT COUNT(DISTINCT d.contact_id) FROM debts d WHERE d.business_id = ? AND d.direction = 'PAYABLE' AND ${live}) AS cr`,
-      [businessId, businessId, businessId, businessId, businessId, businessId, businessId],
+    // The header's balances and counts are @biztrack/domain's (contactsSummary), as the server.
+    const rows = this.db.query<{
+      type: string
+      total_receivable: number
+      total_payable: number
+    }>(`SELECT c.type${BALANCE_COLS} FROM contacts c WHERE c.business_id = ? AND c.is_active = 1`, [
+      businessId,
+    ])
+    return contactsSummary(
+      rows.map((r) => ({
+        type: r.type as ContactType,
+        isActive: true,
+        totalReceivable: r.total_receivable ?? 0,
+        totalPayable: r.total_payable ?? 0,
+      })),
     )
-    if (!row) return empty
-    return {
-      totalReceivable: row.tr ?? 0,
-      totalPayable: row.tp ?? 0,
-      allCount: row.ac ?? 0,
-      customerCount: row.cc ?? 0,
-      supplierCount: row.sc ?? 0,
-      debtorCount: row.dc ?? 0,
-      creditorCount: row.cr ?? 0,
-    }
   }
 
   /** Active suppliers (type SUPPLIER|BOTH) — for PO/RFQ supplier pickers. */
@@ -181,18 +195,57 @@ export class ContactsService {
 
   create(input: CreateContactRequest): LocalContact {
     const businessId = this.requireBusinessId()
-    const name = input.name?.trim()
-    if (!name) throw new Error('A contact name is required.')
+    // The contact rules are @biztrack/domain's (R16), the ones the server applies.
+    this.assertContactInput(input)
+    const name = input.name.trim()
+    const phone = normalizePhone(input.phone)
+    const phoneAlt = normalizePhone(input.phoneAlt)
+    const email = normalizeEmail(input.email)
+    const others = this.contactsForRules(businessId)
+    const clashes = findContactClashes({ name, phone, email }, others)
+    const duplicate = clashes.duplicates[0]
+    if (duplicate && input.onDuplicate !== 'CREATE') {
+      // Refused by default; the screen asks the person to merge, create anyway or cancel.
+      if (input.onDuplicate !== 'MERGE') throw contactDuplicateError(duplicate)
+      const target = others.find((other) => other.id === duplicate.contactId)!
+      const merged = mergeContact(target, {
+        type: input.type,
+        name,
+        phone,
+        phoneAlt,
+        email,
+        address: input.address,
+        notes: input.notes,
+      })
+      return this.update(target.id, {
+        type: merged.type as CreateContactRequest['type'],
+        name: merged.name,
+        phone: merged.phone ?? undefined,
+        phoneAlt: merged.phoneAlt ?? undefined,
+        email: merged.email ?? undefined,
+        address: merged.address ?? undefined,
+        notes: merged.notes ?? undefined,
+      })
+    }
+    if (clashes.nameTaken) throw new Error(NAME_TAKEN_MESSAGE)
+    input = {
+      ...input,
+      name,
+      phone: phone ?? undefined,
+      phoneAlt: phoneAlt ?? undefined,
+      email: email ?? undefined,
+    }
     const id = randomUUID()
     const now = new Date().toISOString()
     this.db.run(
-      `INSERT INTO contacts (id, business_id, type, name, phone, phone_alt, email, address, notes, id_type, id_number, id_issue_date, id_expiry_date, id_documents, selfie_url, is_active, created_by_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)`,
+      `INSERT INTO contacts (id, business_id, type, name, name_key, phone, phone_alt, email, address, notes, id_type, id_number, id_issue_date, id_expiry_date, id_documents, selfie_url, is_active, created_by_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)`,
       [
         id,
         businessId,
         input.type,
         name,
+        contactNameKey(name),
         clean(input.phone),
         clean(input.phoneAlt),
         clean(input.email),
@@ -227,10 +280,22 @@ export class ContactsService {
     if (!before) throw new Error('Contact not found.')
     const type = input.type ?? (before.type as CreateContactRequest['type'])
     const name = (input.name ?? before.name).trim()
-    if (!name) throw new Error('A contact name is required.')
-    const phone = input.phone !== undefined ? clean(input.phone) : before.phone
-    const phoneAlt = input.phoneAlt !== undefined ? clean(input.phoneAlt) : before.phoneAlt
-    const email = input.email !== undefined ? clean(input.email) : before.email
+    this.assertContactInput({
+      name,
+      phone: input.phone,
+      phoneAlt: input.phoneAlt,
+      email: input.email,
+    })
+    if (contactNameKey(name) !== contactNameKey(before.name)) {
+      const { nameTaken } = findContactClashes(
+        { name, selfId: id },
+        this.contactsForRules(businessId),
+      )
+      if (nameTaken) throw new Error(NAME_TAKEN_MESSAGE)
+    }
+    const phone = input.phone !== undefined ? normalizePhone(input.phone) : before.phone
+    const phoneAlt = input.phoneAlt !== undefined ? normalizePhone(input.phoneAlt) : before.phoneAlt
+    const email = input.email !== undefined ? normalizeEmail(input.email) : before.email
     const address = input.address !== undefined ? clean(input.address) : before.address
     const notes = input.notes !== undefined ? clean(input.notes) : before.notes
     const idType = input.idType !== undefined ? clean(input.idType) : before.idType
@@ -245,10 +310,11 @@ export class ContactsService {
     const now = new Date().toISOString()
 
     this.db.run(
-      `UPDATE contacts SET type = ?, name = ?, phone = ?, phone_alt = ?, email = ?, address = ?, notes = ?, id_type = ?, id_number = ?, id_issue_date = ?, id_expiry_date = ?, id_documents = ?, selfie_url = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+      `UPDATE contacts SET type = ?, name = ?, name_key = ?, phone = ?, phone_alt = ?, email = ?, address = ?, notes = ?, id_type = ?, id_number = ?, id_issue_date = ?, id_expiry_date = ?, id_documents = ?, selfie_url = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
       [
         type,
         name,
+        contactNameKey(name),
         phone,
         phoneAlt,
         email,
@@ -305,10 +371,18 @@ export class ContactsService {
     const before = this.getOne(id)
     if (!before) throw new Error('Contact not found.')
     const open = this.db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM debts WHERE business_id = ? AND contact_id = ? AND status IN ('OUTSTANDING','PARTIALLY_PAID')`,
+      `SELECT COUNT(*) AS n FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND ${OPEN}`,
       [businessId, id],
     )
-    if ((open?.n ?? 0) > 0) throw new Error('This contact has open debts and cannot be removed.')
+    // One with open debts cannot be archived (@biztrack/domain, as the server).
+    if (
+      checkContactArchive({
+        wasActive: before.isActive,
+        isActive: false,
+        hasOpenDebts: (open?.n ?? 0) > 0,
+      })
+    )
+      throw new Error('This contact has open debts and cannot be removed.')
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE contacts SET is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
@@ -362,6 +436,47 @@ export class ContactsService {
   private getOne(id: string): LocalContact | null {
     const row = this.db.get<ContactRow>(`SELECT ${COLS} FROM contacts WHERE id = ?`, [id])
     return row ? toLocalContact(row) : null
+  }
+
+  private assertContactInput(input: {
+    name?: string | null
+    phone?: string | null
+    phoneAlt?: string | null
+    email?: string | null
+  }): void {
+    const problem = checkContactInput(input)
+    if (problem === 'CONTACT_NAME_REQUIRED') throw new Error('A contact name is required.')
+    if (problem === 'CONTACT_PHONE_INVALID')
+      throw new Error('Enter a valid phone number, or leave it empty.')
+    if (problem === 'CONTACT_EMAIL_INVALID')
+      throw new Error('Enter a valid email address, or leave it empty.')
+  }
+
+  /** Every contact of the business, archived ones too: names stay unique across all. */
+  private contactsForRules(businessId: string) {
+    return this.db.query<{
+      id: string
+      type: string
+      name: string
+      phone: string | null
+      phoneAlt: string | null
+      email: string | null
+      address: string | null
+      notes: string | null
+    }>(
+      `SELECT id, type, name, phone, phone_alt AS phoneAlt, email, address, notes
+         FROM contacts WHERE business_id = ?`,
+      [businessId],
+    ) as Array<{
+      id: string
+      type: CreateContactRequest['type']
+      name: string
+      phone: string | null
+      phoneAlt: string | null
+      email: string | null
+      address: string | null
+      notes: string | null
+    }>
   }
 
   private requireBusinessId(): string {

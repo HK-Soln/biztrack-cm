@@ -138,4 +138,45 @@ describe('InventoryService.deductForSale (batched)', () => {
       service.deductForSale('biz-1', 'sale-1', 'S-001', 'user-1', [item('p1', 3), item('p1', 4)]),
     ).rejects.toBeInstanceOf(AppBadRequestException)
   })
+
+  it('accepts a synced sale that takes stock below zero and reports the shortfall (R3)', async () => {
+    const { service, inventoryLevelsRepo } = makeService({
+      products: [{ id: 'p1', trackInventory: true }],
+      levels: [{ id: 'lvl-1', productId: 'p1', quantity: 5 }],
+    })
+
+    const shortfalls = await service.deductForSale(
+      'biz-1',
+      'sale-1',
+      'S-001',
+      'user-1',
+      [item('p1', 3), item('p1', 4)],
+      undefined,
+      { allowNegative: true },
+    )
+
+    expect(shortfalls).toEqual([
+      expect.objectContaining({ productId: 'p1', variantId: null, available: 5, requested: 7 }),
+    ])
+    expect(inventoryLevelsRepo.update).toHaveBeenCalledWith('lvl-1', { quantity: -2 })
+  })
+
+  it('reports no shortfall when stock covers the sale', async () => {
+    const { service } = makeService({
+      products: [{ id: 'p1', trackInventory: true }],
+      levels: [{ id: 'lvl-1', productId: 'p1', quantity: 5 }],
+    })
+
+    const shortfalls = await service.deductForSale(
+      'biz-1',
+      'sale-1',
+      'S-001',
+      'user-1',
+      [item('p1', 5)],
+      undefined,
+      { allowNegative: true },
+    )
+
+    expect(shortfalls).toEqual([])
+  })
 })

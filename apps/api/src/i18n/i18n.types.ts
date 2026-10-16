@@ -96,6 +96,7 @@ export interface I18nTranslations {
     variant_options_required: string
     variant_name_or_options_required: string
     variant_duplicate_combination: string
+    variant_remove_reason_required: string
     variant_duplicate_sku: string
     brand_not_found: string
     model_not_found: string
@@ -115,6 +116,10 @@ export interface I18nTranslations {
     serial_unit_not_in_stock: string
     serial_duplicate_in_stock: string
     serial_invalid_format: string
+    serial_in_use: string
+    serial_required: string
+    serial_retire_reason_required: string
+    serial_unit_not_editable: string
     online_store_exists: string
     online_store_not_found: string
     online_store_publication_not_found: string
@@ -124,6 +129,18 @@ export interface I18nTranslations {
     online_min_order_not_met: string
     inventory_not_found: string
     inventory_insufficient_stock: string
+    restock_serials_required: string
+    restock_quantity_invalid: string
+    restock_variant_required: string
+    contact_email_invalid: string
+    debt_payments_exceed_original: string
+    debt_write_off_reason_required: string
+    debt_payment_amount_invalid: string
+    stock_adjustment_quantity_invalid: string
+    stock_adjustment_reason_required: string
+    stock_serialized: string
+    stock_variant_required: string
+    stock_variant_not_expected: string
     insufficient_stock: string
     unit_of_measure_exists: string
     unit_of_measure_not_found: string
@@ -133,6 +150,7 @@ export interface I18nTranslations {
     underpayment: string
     already_voided: string
     sales_void_forbidden: string
+    staff_action_forbidden: string
   }
   plans: {
     selected: string

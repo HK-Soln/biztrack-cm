@@ -10,6 +10,7 @@ import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalProduct, ProductListQuery, StockStatus } from '@shared/ipc'
+import { useStaffMay } from '@/lib/staff'
 
 function marginInfo(p: LocalProduct): { text: string; good: boolean } {
   const cost = p.effectiveCostPrice
@@ -39,17 +40,15 @@ function htmlEsc(s: string): string {
 
 /** Derived stock state for the status pill (mirrors the API/list-filter logic). */
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
-  if (!p.trackInventory) return 'none'
-  const threshold = p.reorderPoint ?? p.lowStockThreshold ?? 0
-  if (p.currentStock <= 0) return 'out'
-  if (threshold > 0 && p.currentStock <= threshold) return 'low'
-  return 'in'
+  // Worked out where the product is loaded, by @biztrack/domain's rule (variants included).
+  return p.trackInventory ? (p.stockStatus ?? 'out') : 'none'
 }
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
 export function Products() {
   const t = useT()
+  const mayDelete = useStaffMay('PRODUCT_DELETE')
   const bp = useBreakpoint()
   const money = useCurrency()
   const navigate = useNavigate()
@@ -315,15 +314,17 @@ export function Products() {
           <path d="M14 6l4 4" />
         </svg>
       </button>
-      <button
-        title={t('prod.delete')}
-        onClick={() => setDeleteTarget(p)}
-        style={{ color: 'var(--danger)' }}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-          <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
-        </svg>
-      </button>
+      {mayDelete ? (
+        <button
+          title={t('prod.delete')}
+          onClick={() => setDeleteTarget(p)}
+          style={{ color: 'var(--danger)' }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+          </svg>
+        </button>
+      ) : null}
     </span>
   )
 

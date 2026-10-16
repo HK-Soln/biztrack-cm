@@ -3,13 +3,27 @@
 import type { useT } from '@/i18n'
 import type { LocalSale } from '@shared/ipc'
 
-export function saleStatusInfo(t: ReturnType<typeof useT>, s: Pick<LocalSale, 'status' | 'creditAmount' | 'amountPaid'>): {
+export function saleStatusInfo(
+  t: ReturnType<typeof useT>,
+  s: Pick<LocalSale, 'status' | 'creditAmount' | 'amountPaid'>,
+): {
   cls: string
   label: string
 } {
   if (s.status === 'VOIDED') return { cls: 'st-out', label: t('sales.refunded') }
-  if (s.creditAmount > 0) return { cls: 'st-low', label: s.amountPaid > 0 ? t('sales.partial') : t('sales.onCredit') }
+  if (s.creditAmount > 0)
+    return { cls: 'st-low', label: s.amountPaid > 0 ? t('sales.partial') : t('sales.onCredit') }
   return { cls: 'st-ok', label: t('sales.paid') }
+}
+
+/** How a sale was paid, for display. A sale with nothing paid and a balance owing is
+ *  "credit" whatever method is stored (the stored method of an unpaid sale is MIXED). */
+export function salePaidByLabel(
+  t: ReturnType<typeof useT>,
+  sale: { paymentMethod: string | null; amountPaid: number; creditAmount: number },
+): string {
+  if (sale.amountPaid <= 0 && sale.creditAmount > 0) return t('sell.credit')
+  return salePayLabel(t, sale.paymentMethod)
 }
 
 export function salePayLabel(t: ReturnType<typeof useT>, method: string | null): string {

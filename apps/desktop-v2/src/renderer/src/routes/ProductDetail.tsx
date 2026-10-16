@@ -1,3 +1,4 @@
+import { marginPercent } from '@biztrack/domain'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,21 +15,21 @@ import { ThresholdModal } from '@/components/inventory/ThresholdModal'
 import { MovementHistoryModal } from '@/components/inventory/MovementHistoryModal'
 import { useT } from '@/i18n'
 import type { LocalProduct } from '@shared/ipc'
+import { useStaffMay } from '@/lib/staff'
 
 // Inline stock-bin card shows only the most recent few movements; the full history
 // (which can grow large) lives behind the "view all" modal.
 const MOVE_PREVIEW = 5
 
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
-  if (!p.trackInventory) return 'none'
-  const threshold = p.reorderPoint ?? p.lowStockThreshold ?? 0
-  if (p.currentStock <= 0) return 'out'
-  if (threshold > 0 && p.currentStock <= threshold) return 'low'
-  return 'in'
+  // Worked out where the product is loaded, by @biztrack/domain's rule (variants included).
+  return p.trackInventory ? (p.stockStatus ?? 'out') : 'none'
 }
 
 export function ProductDetail() {
   const t = useT()
+  const mayAdjust = useStaffMay('STOCK_ADJUST')
+  const mayDelete = useStaffMay('PRODUCT_DELETE')
   const navigate = useNavigate()
   const { id } = useParams()
   const qc = useQueryClient()
@@ -91,7 +92,7 @@ export function ProductDetail() {
   const effPrice = p.effectiveSellingPrice
   const stockValue = (effCost ?? 0) * p.currentStock
   const unitMargin = effCost != null && effCost > 0 && effPrice > 0 ? effPrice - effCost : null
-  const marginPct = unitMargin != null && effPrice > 0 ? (unitMargin / effPrice) * 100 : null
+  const marginPct = marginPercent(effPrice, effCost)
   const onHandClass = ss === 'low' ? ' warn' : ss === 'out' ? ' bad' : ''
 
   const statusPill = () => {
@@ -143,7 +144,7 @@ export function ProductDetail() {
               {t('pdv.restock')}
             </Button>
           ) : null}
-          {isDirect ? (
+          {isDirect && mayAdjust ? (
             <Button variant="default" onClick={() => setAdjustOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" />
@@ -158,17 +159,19 @@ export function ProductDetail() {
             </svg>
             {t('pdv.edit')}
           </Button>
-          <Button
-            variant="soft"
-            onClick={() => setConfirmOpen(true)}
-            style={{ color: 'var(--danger)' }}
-            title={t('pdv.delete')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
-            </svg>
-            {t('pdv.delete')}
-          </Button>
+          {mayDelete ? (
+            <Button
+              variant="soft"
+              onClick={() => setConfirmOpen(true)}
+              style={{ color: 'var(--danger)' }}
+              title={t('pdv.delete')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+              </svg>
+              {t('pdv.delete')}
+            </Button>
+          ) : null}
         </div>
       </div>
 

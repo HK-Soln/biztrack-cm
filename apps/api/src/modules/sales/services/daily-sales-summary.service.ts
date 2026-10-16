@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { PaymentMethod } from '@biztrack/types'
 import { Repository, EntityManager } from 'typeorm'
+import { toWholeXaf, type RefundProfitImpact } from '@biztrack/domain'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
@@ -95,14 +96,63 @@ export class DailySalesSummaryService {
     )
   }
 
+  /**
+   * A refund reduces the revenue of the day it happens (ruling R4): subtract the value
+   * charged for the returned goods and the cost of the items put back into stock. The
+   * amounts come from @biztrack/domain's refundProfitImpact. Revenue is not clamped at zero:
+   * a day with only refunds is legitimately negative. The cash side is not touched here.
+   */
+  async applyRefund(
+    businessId: string,
+    summaryDate: string,
+    impact: RefundProfitImpact,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (impact.revenue === 0 && impact.cogs === 0) return
+    const repo = manager?.getRepository(DailySaleSummary) ?? this.summariesRepo
+    await repo.query(
+      `
+        INSERT INTO daily_sale_summaries (
+          business_id, summary_date, total_sales, total_revenue, total_transacted, total_cost,
+          gross_profit, total_discounts, cash_collected, mtn_momo_collected,
+          orange_money_collected, card_collected, credit_issued, credit_sales, voided_sales,
+          voided_amount, total_refunds, updated_at
+        )
+        VALUES ($1, $2, 0, -$3::numeric, 0, -$4::numeric, -$5::numeric, 0, 0, 0, 0, 0, 0, 0, 0, 0, $3::numeric, now())
+        ON CONFLICT (business_id, summary_date)
+        DO UPDATE SET
+          total_revenue = daily_sale_summaries.total_revenue - $3::numeric,
+          total_cost = daily_sale_summaries.total_cost - $4::numeric,
+          gross_profit = daily_sale_summaries.gross_profit - $5::numeric,
+          total_refunds = daily_sale_summaries.total_refunds + $3::numeric,
+          updated_at = now()
+      `,
+      [businessId, summaryDate, impact.revenue, impact.cogs, impact.grossProfit],
+    )
+  }
+
   async decrementForVoid(
     sale: Sale,
     items: SaleItem[],
     payments: SalePayment[],
     manager?: EntityManager,
+    /**
+     * The revenue and cost the sale still carries (@biztrack/domain's decideSaleVoid). A
+     * partly refunded sale is voided only for this balance: its refunds already came off
+     * the summary, and must not be subtracted twice.
+     */
+    balance?: { revenue: number; cogs: number; grossProfit: number },
   ): Promise<void> {
     const repo = manager?.getRepository(DailySaleSummary) ?? this.summariesRepo
-    const totals = this.computeTotals(sale, items, payments)
+    const computed = this.computeTotals(sale, items, payments)
+    const totals = balance
+      ? {
+          ...computed,
+          revenue: balance.revenue,
+          totalCost: balance.cogs,
+          grossProfit: balance.grossProfit,
+        }
+      : computed
 
     await repo.query(
       `
@@ -165,11 +215,11 @@ export class DailySalesSummaryService {
   private computeTotals(sale: Sale, items: SaleItem[], payments: SalePayment[]) {
     // D7 canonical revenue = Σ line_total (net of line + allocated cart discounts, EXCLUDING
     // sale-level charges) — the same basis as SalesService.getGrossProfit and the owner digest.
-    const revenue = this.roundMoney(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0))
-    const totalCost = this.roundMoney(
+    const revenue = toWholeXaf(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0))
+    const totalCost = toWholeXaf(
       items.reduce((sum, item) => sum + (item.costPrice ?? 0) * item.quantity, 0),
     )
-    const lineDiscounts = this.roundMoney(
+    const lineDiscounts = toWholeXaf(
       items.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0),
     )
     const breakdown = this.computePaymentBreakdown(payments)
@@ -177,8 +227,8 @@ export class DailySalesSummaryService {
     return {
       revenue,
       totalCost,
-      grossProfit: this.roundMoney(revenue - totalCost),
-      totalDiscounts: this.roundMoney(sale.discountAmount + lineDiscounts),
+      grossProfit: toWholeXaf(revenue - totalCost),
+      totalDiscounts: toWholeXaf(sale.discountAmount + lineDiscounts),
       ...breakdown,
     }
   }
@@ -193,20 +243,16 @@ export class DailySalesSummaryService {
 
     for (const payment of payments) {
       if (payment.method === PaymentMethod.CASH) {
-        totals.cashCollected = this.roundMoney(totals.cashCollected + payment.amount)
+        totals.cashCollected = toWholeXaf(totals.cashCollected + payment.amount)
       } else if (payment.method === PaymentMethod.MTN_MOMO) {
-        totals.mtnMomoCollected = this.roundMoney(totals.mtnMomoCollected + payment.amount)
+        totals.mtnMomoCollected = toWholeXaf(totals.mtnMomoCollected + payment.amount)
       } else if (payment.method === PaymentMethod.ORANGE_MONEY) {
-        totals.orangeMoneyCollected = this.roundMoney(totals.orangeMoneyCollected + payment.amount)
+        totals.orangeMoneyCollected = toWholeXaf(totals.orangeMoneyCollected + payment.amount)
       } else if (payment.method === PaymentMethod.CARD) {
-        totals.cardCollected = this.roundMoney(totals.cardCollected + payment.amount)
+        totals.cardCollected = toWholeXaf(totals.cardCollected + payment.amount)
       }
     }
 
     return totals
-  }
-
-  private roundMoney(value: number) {
-    return Math.round(value * 100) / 100
   }
 }

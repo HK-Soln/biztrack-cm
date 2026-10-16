@@ -7,7 +7,6 @@ import {
   DebtDirection,
   DebtSource,
   DebtStatus,
-  ContactStatementEntryType,
   NotificationType,
   PaymentMethod,
   clampCreditDays,
@@ -19,7 +18,23 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
-import { APP_ROUTES, effectiveDueDate } from '@biztrack/utils'
+import {
+  buildContactStatement,
+  checkDebtPayment,
+  checkDebtWriteOff,
+  debtAfterChange,
+  debtBalance,
+  debtCanBeWrittenOff,
+  debtSettledAt,
+  debtStanding,
+  effectiveDueDate,
+  planDebtOffset,
+  reduceDebt,
+  sourceDebtPayment,
+  summarizeDebts,
+  toWholeXaf,
+} from '@biztrack/domain'
+import { APP_ROUTES } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -158,57 +173,16 @@ export class DebtsService {
         where: { businessId, direction },
       })
       const paidAmounts = await this.loadPaidAmounts(debts.map((debt) => debt.id))
-      const monthStart = new Date()
-      monthStart.setUTCDate(1)
-      monthStart.setUTCHours(0, 0, 0, 0)
-      const monthEnd = new Date(
-        Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1),
-      )
-
-      let totalOutstanding = 0
-      let outstandingDebtCount = 0
-      let partiallyPaidDebtCount = 0
-      let partiallyPaidOutstanding = 0
-      let settledThisMonthCount = 0
-      let settledThisMonthAmount = 0
-
-      for (const debt of debts) {
-        const paidAmount = paidAmounts.get(debt.id) ?? 0
-        const rawOutstanding = this.computeRawOutstanding(debt.originalAmount, paidAmount)
-
-        if (
-          [DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status) &&
-          rawOutstanding > 0
-        ) {
-          totalOutstanding = this.roundMoney(totalOutstanding + rawOutstanding)
-          outstandingDebtCount += 1
-        }
-
-        if (debt.status === DebtStatus.PARTIALLY_PAID && rawOutstanding > 0) {
-          partiallyPaidDebtCount += 1
-          partiallyPaidOutstanding = this.roundMoney(partiallyPaidOutstanding + rawOutstanding)
-        }
-
-        if (
-          debt.status === DebtStatus.SETTLED &&
-          debt.settledAt &&
-          debt.settledAt >= monthStart &&
-          debt.settledAt < monthEnd
-        ) {
-          settledThisMonthCount += 1
-          settledThisMonthAmount = this.roundMoney(settledThisMonthAmount + debt.originalAmount)
-        }
-      }
-
-      return {
+      // The summary is @biztrack/domain's (summarizeDebts).
+      return summarizeDebts({
         direction,
-        totalOutstanding,
-        outstandingDebtCount,
-        partiallyPaidDebtCount,
-        partiallyPaidOutstanding,
-        settledThisMonthCount,
-        settledThisMonthAmount,
-      }
+        now: new Date(),
+        debts: debts.map((debt) => ({
+          ...debt,
+          paidAmount: paidAmounts.get(debt.id) ?? 0,
+          dueDate: debt.dueDate ?? null,
+        })),
+      })
     } catch (error) {
       return this.handleServiceError('getSummary', error, { businessId, direction })
     }
@@ -283,36 +257,36 @@ export class DebtsService {
           )
         }
 
-        if ([DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_payment_locked' as never),
-            'DEBT_PAYMENT_LOCKED',
-          )
-        }
-
         const outstandingAmount = await this.computeOutstandingAmount(
           debt.id,
           manager,
           debt.originalAmount,
         )
-        const amount = this.roundMoney(dto.amount)
-
-        if (amount <= 0 || amount > outstandingAmount) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_payment_amount_exceeds_outstanding' as never),
-            'DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING',
-            { amount, outstandingAmount },
-          )
-        }
-
+        // An open debt, above zero, not before the debt, no more than is owed:
+        // @biztrack/domain's rule, as on the till.
         const debtCreatedDate = this.toDateOnly(debt.createdAt)
-        if (dto.paymentDate < debtCreatedDate) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_payment_date_invalid' as never),
-            'DEBT_PAYMENT_DATE_INVALID',
-            { debtCreatedDate },
-          )
+        const payment = checkDebtPayment({
+          amount: dto.amount,
+          outstanding: outstandingAmount,
+          status: debt.status,
+          paymentDate: dto.paymentDate,
+          debtCreatedDate,
+        })
+        if (!payment.ok) {
+          const key = {
+            DEBT_PAYMENT_LOCKED: 'errors.debt_payment_locked',
+            DEBT_PAYMENT_AMOUNT_INVALID: 'errors.debt_payment_amount_invalid',
+            DEBT_PAYMENT_DATE_INVALID: 'errors.debt_payment_date_invalid',
+            DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING:
+              'errors.debt_payment_amount_exceeds_outstanding',
+          }[payment.code]
+          throw new AppBadRequestException(await this.i18n.translate(key as never), payment.code, {
+            amount: toWholeXaf(dto.amount),
+            outstandingAmount,
+            debtCreatedDate,
+          })
         }
+        const { amount } = payment
 
         // Local trading day this collection lands on (BIZ-5.1).
         const businessDate = await this.calendar.computeForBusiness(businessId, dto.paymentDate)
@@ -337,7 +311,7 @@ export class DebtsService {
       // Money in: notify the owner when a customer settles a receivable (BIZ-4 payment
       // producer). Fire-and-forget — a notification hiccup must not fail the payment.
       if (direction === DebtDirection.RECEIVABLE) {
-        void this.notifyPaymentReceived(businessId, result, this.roundMoney(dto.amount))
+        void this.notifyPaymentReceived(businessId, result, toWholeXaf(dto.amount))
       }
       return result
     } catch (error) {
@@ -427,49 +401,44 @@ export class DebtsService {
           return rows
         }
 
-        const recv = await openFor(DebtDirection.RECEIVABLE)
-        const pay = await openFor(DebtDirection.PAYABLE)
-        const sum = (rows: { outstanding: number }[]) =>
-          this.roundMoney(rows.reduce((s, r) => s + r.outstanding, 0))
-        const offsetAmount = this.roundMoney(Math.min(sum(recv), sum(pay)))
-        if (offsetAmount <= 0) {
+        // How much is netted, and against which debts, is @biztrack/domain's, as on the till.
+        const plan = planDebtOffset({
+          receivables: await openFor(DebtDirection.RECEIVABLE),
+          payables: await openFor(DebtDirection.PAYABLE),
+        })
+        if (!plan.ok) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.debt_offset_nothing' as never),
             'DEBT_OFFSET_NOTHING',
           )
         }
+        const { offsetAmount } = plan
 
         const today = this.toDateOnly(new Date())
         const ref = `OFFSET-${today.replace(/-/g, '')}`
         // Local trading day these contra payments land on (BIZ-5.1).
         const businessDate = await this.calendar.computeForBusiness(businessId, today)
         let affected = 0
-        const allocate = async (rows: { debt: DebtEntity; outstanding: number }[]) => {
-          let remaining = offsetAmount
-          for (const { debt, outstanding } of rows) {
-            if (remaining <= 0.0001) break
-            const applied = this.roundMoney(Math.min(remaining, outstanding))
-            if (applied <= 0) continue
-            await paymentRepo.save(
-              paymentRepo.create({
-                businessId,
-                debtId: debt.id,
-                amount: applied,
-                method: 'OFFSET' as PaymentMethod,
-                mobileMoneyReference: null,
-                paymentDate: today,
-                notes: ref,
-                recordedById: user.sub,
-                businessDate,
-              }),
-            )
-            await this.recalculateStatus(debt.id, manager)
-            remaining = this.roundMoney(remaining - applied)
-            affected++
-          }
+        for (const {
+          debt: { debt },
+          amount,
+        } of plan.allocations) {
+          await paymentRepo.save(
+            paymentRepo.create({
+              businessId,
+              debtId: debt.id,
+              amount,
+              method: 'OFFSET' as PaymentMethod,
+              mobileMoneyReference: null,
+              paymentDate: today,
+              notes: ref,
+              recordedById: user.sub,
+              businessDate,
+            }),
+          )
+          await this.recalculateStatus(debt.id, manager)
+          affected++
         }
-        await allocate(recv)
-        await allocate(pay)
 
         return { offsetAmount, affected }
       })
@@ -560,13 +529,7 @@ export class DebtsService {
           }),
         )
 
-        if (debt.status !== DebtStatus.WRITTEN_OFF) {
-          await this.recalculateStatus(debt.id, manager)
-        } else {
-          await debtRepo.update(debt.id, {
-            updatedAt: new Date(),
-          })
-        }
+        await this.recalculateStatus(debt.id, manager)
       })
     } catch (error) {
       return this.handleServiceError('deletePayment', error, {
@@ -606,18 +569,15 @@ export class DebtsService {
           )
         }
 
-        if (debt.status === DebtStatus.WRITTEN_OFF) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_already_written_off' as never),
-            'DEBT_ALREADY_WRITTEN_OFF',
-          )
-        }
-
-        if (debt.status === DebtStatus.SETTLED) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_already_settled' as never),
-            'DEBT_ALREADY_SETTLED',
-          )
+        // Only an open debt, with a reason (@biztrack/domain, as the till).
+        const writeOff = checkDebtWriteOff({ status: debt.status, reason: dto.reason })
+        if (!writeOff.ok) {
+          const key = {
+            DEBT_ALREADY_WRITTEN_OFF: 'errors.debt_already_written_off',
+            DEBT_ALREADY_SETTLED: 'errors.debt_already_settled',
+            DEBT_WRITE_OFF_REASON_REQUIRED: 'errors.debt_write_off_reason_required',
+          }[writeOff.code]
+          throw new AppBadRequestException(await this.i18n.translate(key as never), writeOff.code)
         }
 
         await debtRepo.update(debt.id, {
@@ -625,7 +585,7 @@ export class DebtsService {
           settledAt: null,
           writtenOffAt: new Date(),
           writtenOffById: user.sub,
-          writtenOffReason: dto.reason.trim(),
+          writtenOffReason: writeOff.reason,
           updatedAt: new Date(),
         })
       })
@@ -679,93 +639,16 @@ export class DebtsService {
         .addOrderBy('payment.payment_date', 'ASC')
         .getMany()
 
-      // The opening balance is now an OPENING_BALANCE debt (pinned to the opening date so it
-      // sorts first); it renders as the opening entry and its payments flow like any other debt.
-      const openingBalance = debts.find((debt) => debt.sourceType === DebtSource.OPENING_BALANCE)
-
-      const events: Array<{
-        sortAt: number
-        date: string
-        type: ContactStatementEntryType
-        reference: string | null
-        description: string
-        debit: number
-        credit: number
-      }> = []
-
-      for (const debt of debts) {
-        const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
-        events.push({
-          sortAt: debt.createdAt.getTime(),
-          date: this.toDateOnly(debt.createdAt),
-          type: isOpening
-            ? ContactStatementEntryType.OPENING_BALANCE
-            : ContactStatementEntryType.DEBT_CREATED,
-          reference: isOpening ? null : (debt.sourceReference ?? null),
-          description: isOpening
-            ? 'Opening balance'
-            : debt.sourceType === DebtSource.SALE
-              ? 'Sale on credit'
-              : 'Restock on credit',
-          debit: debt.originalAmount,
-          credit: 0,
-        })
-
-        const sortedPayments = [...(debt.payments ?? [])].sort((a, b) => {
-          const dateCompare = a.paymentDate.localeCompare(b.paymentDate)
-          if (dateCompare !== 0) return dateCompare
-          return a.createdAt.getTime() - b.createdAt.getTime()
-        })
-
-        for (const payment of sortedPayments) {
-          events.push({
-            sortAt: Date.parse(`${payment.paymentDate}T12:00:00.000Z`),
-            date: payment.paymentDate,
-            type: ContactStatementEntryType.PAYMENT,
-            // The method enum goes in `reference` (the renderer localizes it via debt.method_*);
-            // the momo reference goes in `description`. Mirrors the desktop statement so both
-            // platforms produce an identical, localizable ledger.
-            reference: payment.method,
-            description: payment.mobileMoneyReference ?? '',
-            debit: 0,
-            credit: payment.amount,
-          })
-        }
-
-        if (debt.status === DebtStatus.WRITTEN_OFF && debt.writtenOffAt) {
-          const totalPaid = this.roundMoney(
-            (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
-          )
-          const remaining = this.computeRawOutstanding(debt.originalAmount, totalPaid)
-          if (remaining > 0) {
-            events.push({
-              sortAt: debt.writtenOffAt.getTime(),
-              date: this.toDateOnly(debt.writtenOffAt),
-              type: ContactStatementEntryType.WRITE_OFF,
-              reference: debt.sourceReference ?? null,
-              description: 'Debt written off',
-              debit: 0,
-              credit: remaining,
-            })
-          }
-        }
-      }
-
-      events.sort((left, right) => left.sortAt - right.sortAt)
-
-      let balance = 0
-      const entries = events.map((event) => {
-        balance = this.roundMoney(balance + event.debit - event.credit)
-        return {
-          date: event.date,
-          type: event.type,
-          direction,
-          reference: event.reference,
-          description: event.description,
-          debit: event.debit,
-          credit: event.credit,
-          balance,
-        }
+      // The statement and its running balance are @biztrack/domain's (buildContactStatement),
+      // as on the till. The opening balance is an OPENING_BALANCE debt dated to the opening day.
+      const statement = buildContactStatement({
+        direction,
+        debts: debts.map((debt) => ({
+          ...debt,
+          dueDate: debt.dueDate ?? null,
+          paidAmount: (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
+          payments: debt.payments ?? [],
+        })),
       })
 
       return {
@@ -775,9 +658,7 @@ export class DebtsService {
           phone: contact.phone ?? null,
         },
         direction,
-        openingBalance: openingBalance?.originalAmount ?? 0,
-        entries,
-        closingBalance: balance,
+        ...statement,
       }
     } catch (error) {
       return this.handleServiceError('buildContactStatement', error, {
@@ -854,7 +735,7 @@ export class DebtsService {
     manager: EntityManager,
     params: CreateSourceDebtParams,
   ): Promise<DebtEntity | null> {
-    const originalAmount = this.roundMoney(params.originalAmount)
+    const originalAmount = toWholeXaf(params.originalAmount)
     const sourceReference = this.normalizeOptionalString(params.sourceReference) ?? params.sourceId
     if (originalAmount <= 0) {
       return null
@@ -942,7 +823,8 @@ export class DebtsService {
     const writtenOffReason = this.normalizeOptionalString(params.reason) ?? 'Written off'
 
     for (const debt of debts) {
-      if ([DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) {
+      // A debt already paid in full stays settled (ruling R11).
+      if (!debtCanBeWrittenOff(debt.status)) {
         continue
       }
 
@@ -955,6 +837,68 @@ export class DebtsService {
         updatedAt: writtenOffAt,
       })
     }
+  }
+
+  /**
+   * What is still owed and what has been paid on the debt of a source (a sale's receivable),
+   * for deciding a return. Zeros when there is no debt; a written-off debt owes nothing.
+   */
+  async sourceDebtBalance(
+    manager: EntityManager,
+    params: { businessId: string; sourceType: DebtSource; sourceId: string },
+  ): Promise<{ outstanding: number; paid: number }> {
+    const debt = await manager.getRepository(DebtEntity).findOne({ where: params })
+    if (!debt) return { outstanding: 0, paid: 0 }
+    // A written-off debt owes nothing (@biztrack/domain debtBalance, as the till).
+    const standing = debtBalance({
+      originalAmount: debt.originalAmount,
+      paidAmount: await this.sumDebtPayments(debt.id, manager),
+      status: debt.status,
+    })
+    return { outstanding: standing.outstandingAmount, paid: standing.paidAmount }
+  }
+
+  /**
+   * Take returned goods off the debt of a source (ruling R10). How far the debt comes down
+   * and where it then stands is `reduceDebt` in @biztrack/domain. No-op when there is no
+   * open debt.
+   */
+  async reduceSourceDebt(
+    manager: EntityManager,
+    params: { businessId: string; sourceType: DebtSource; sourceId: string; amount: number },
+  ): Promise<void> {
+    if (!(params.amount > 0)) return
+    const debtRepo = manager.getRepository(DebtEntity)
+    const debt = await debtRepo.findOne({
+      where: {
+        businessId: params.businessId,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+      },
+    })
+    if (!debt || !debtCanBeWrittenOff(debt.status)) return
+    const reduced = reduceDebt({
+      originalAmount: debt.originalAmount,
+      paidAmount: await this.sumDebtPayments(debt.id, manager),
+      reduction: params.amount,
+    })
+    const now = new Date()
+    await debtRepo.update(debt.id, {
+      originalAmount: reduced.originalAmount,
+      status: reduced.standing.status,
+      settledAt: debtSettledAt(reduced.standing, debt.settledAt, now),
+      updatedAt: now,
+    })
+  }
+
+  private async sumDebtPayments(debtId: string, manager: EntityManager): Promise<number> {
+    const row = await manager
+      .getRepository(DebtPayment)
+      .createQueryBuilder('payment')
+      .select('COALESCE(SUM(payment.amount), 0)', 'paidAmount')
+      .where('payment.debt_id = :debtId', { debtId })
+      .getRawOne<{ paidAmount: string | number | null }>()
+    return Number(row?.paidAmount ?? 0)
   }
 
   /**
@@ -978,7 +922,7 @@ export class DebtsService {
       notes?: string | null
     },
   ): Promise<void> {
-    const amount = this.roundMoney(params.amount)
+    const amount = toWholeXaf(params.amount)
     if (amount <= 0) return
 
     const debtRepo = manager.getRepository(DebtEntity)
@@ -990,10 +934,15 @@ export class DebtsService {
         sourceId: params.sourceId,
       },
     })
-    if (!debt || [DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) return
+    if (!debt) return
 
-    const outstanding = await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount)
-    const applied = Math.min(amount, outstanding)
+    // What the debt takes of the money collected is @biztrack/domain's: at most what is
+    // owed, nothing on a settled or written-off debt.
+    const { applied } = sourceDebtPayment({
+      amount,
+      outstanding: await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount),
+      status: debt.status,
+    })
     if (applied <= 0) return
 
     const paymentRepo = manager.getRepository(DebtPayment)
@@ -1132,7 +1081,7 @@ export class DebtsService {
       .groupBy('payment.debt_id')
       .getRawMany<{ debtId: string; paidAmount: string | number }>()
 
-    return new Map(rows.map((row) => [row.debtId, this.roundMoney(Number(row.paidAmount ?? 0))]))
+    return new Map(rows.map((row) => [row.debtId, toWholeXaf(Number(row.paidAmount ?? 0))]))
   }
 
   private toDebtModel(entity: DebtDetailEntity | DebtEntity, paidAmountOverride?: number): Debt {
@@ -1142,10 +1091,13 @@ export class DebtsService {
       return left.createdAt.getTime() - right.createdAt.getTime()
     })
     const paidAmount =
-      paidAmountOverride ??
-      this.roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0))
-    const rawOutstanding = this.computeRawOutstanding(entity.originalAmount, paidAmount)
-    const outstandingAmount = entity.status === DebtStatus.WRITTEN_OFF ? 0 : rawOutstanding
+      paidAmountOverride ?? toWholeXaf(payments.reduce((sum, payment) => sum + payment.amount, 0))
+    // A written-off debt owes nothing (@biztrack/domain debtBalance, as the till).
+    const { outstandingAmount } = debtBalance({
+      originalAmount: entity.originalAmount,
+      paidAmount,
+      status: entity.status,
+    })
 
     return {
       id: entity.id,
@@ -1207,38 +1159,37 @@ export class DebtsService {
       .where('payment.debt_id = :debtId', { debtId })
       .getRawOne<{ paidAmount: string | number | null }>()
 
-    return this.computeRawOutstanding(originalAmount, Number(totalPaidRow?.paidAmount ?? 0))
+    return debtStanding({ originalAmount, paidAmount: Number(totalPaidRow?.paidAmount ?? 0) })
+      .unpaidAmount
   }
 
   private async recalculateStatus(debtId: string, manager: EntityManager) {
     const debtRepo = manager.getRepository(DebtEntity)
     const debt = await debtRepo.findOne({ where: { id: debtId } })
 
-    if (!debt || debt.status === DebtStatus.WRITTEN_OFF) return
+    if (!debt) return
 
-    const outstandingAmount = await this.computeOutstandingAmount(
-      debtId,
-      manager,
-      debt.originalAmount,
-    )
-    const totalPaid = this.roundMoney(debt.originalAmount - outstandingAmount)
-    let status = DebtStatus.OUTSTANDING
-
-    if (outstandingAmount <= 0) {
-      status = DebtStatus.SETTLED
-    } else if (totalPaid > 0) {
-      status = DebtStatus.PARTIALLY_PAID
-    }
+    const paidRow = await manager
+      .getRepository(DebtPayment)
+      .createQueryBuilder('payment')
+      .select('COALESCE(SUM(payment.amount), 0)', 'paidAmount')
+      .where('payment.debt_id = :debtId', { debtId })
+      .getRawOne<{ paidAmount: string | number | null }>()
+    // Where the debt stands is @biztrack/domain's rule, the same one the till applies; a
+    // written-off debt stays written off.
+    const next = debtAfterChange({
+      originalAmount: debt.originalAmount,
+      paidAmount: Number(paidRow?.paidAmount ?? 0),
+      status: debt.status,
+      settledAt: debt.settledAt,
+      at: new Date(),
+    })
 
     await debtRepo.update(debtId, {
-      status,
-      settledAt: status === DebtStatus.SETTLED ? new Date() : null,
+      status: next.status,
+      settledAt: next.settledAt,
       updatedAt: new Date(),
     })
-  }
-
-  private computeRawOutstanding(originalAmount: number, paidAmount: number) {
-    return this.roundMoney(Math.max(0, originalAmount - paidAmount))
   }
 
   private resolveRequiredContactType({ direction, contact }: ContactTypeRequirement) {
@@ -1264,10 +1215,6 @@ export class DebtsService {
   private normalizeOptionalString(value?: string | null) {
     const trimmed = value?.trim()
     return trimmed ? trimmed : null
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private assertDateOnly(value: string) {

@@ -238,19 +238,18 @@ describe('ProductVariantsService.createVariantsFromAttributeSelections', () => {
     expect(saved.variants.map((v) => v.name)).not.toContain('Blue 256GB')
   })
 
-  it('rejects a single-combination matrix (needs at least 2 variants)', async () => {
+  it('accepts a single-combination matrix: one variant is enough (ruling R14)', async () => {
     const { service } = makeService()
     const { manager } = makeManager()
 
-    await expect(
-      service.createVariantsFromAttributeSelections(
-        manager as any,
-        product,
-        [{ attributeGroupId: 'g-color', selectedOptionIds: ['o-black'] }],
-        [],
-        'b-1',
-        'u-1',
-      ),
-    ).rejects.toMatchObject({ code: 'VARIANT_MIN_TWO' })
+    const created = await service.createVariantsFromAttributeSelections(
+      manager as any,
+      product,
+      [{ attributeGroupId: 'g-color', selectedOptionIds: ['o-black'] }],
+      [],
+      'b-1',
+      'u-1',
+    )
+    expect(created).toHaveLength(1)
   })
 })

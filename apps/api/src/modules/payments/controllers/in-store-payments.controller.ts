@@ -7,7 +7,7 @@ import {
   type InStorePaymentStatus,
   type JwtPayload,
 } from '@biztrack/types'
-import { majorToMinor } from '@biztrack/utils'
+import { majorToMinor } from '@biztrack/domain'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import {
   AppBadRequestException,
@@ -36,7 +36,9 @@ export class InStorePaymentsController {
   ) {}
 
   @Get('override-summary')
-  @ApiOperation({ summary: 'Per-cashier manual hard-confirm tally (§7.6 → BIZ-2.11, owner/manager)' })
+  @ApiOperation({
+    summary: 'Per-cashier manual hard-confirm tally (§7.6 → BIZ-2.11, owner/manager)',
+  })
   overrideSummary(@CurrentUser() user: JwtPayload): Promise<InStoreOverrideSummaryRow[]> {
     if (
       ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
@@ -62,7 +64,8 @@ export class InStorePaymentsController {
       amountMinor: majorToMinor(dto.amount, currency),
       currency,
       // Space-free reference — it becomes the provider externalId (MoMo rejects spaces with a 400).
-      reference: dto.reference?.trim().replace(/\s+/g, '-') || `POS-${dto.clientReference.slice(0, 8)}`,
+      reference:
+        dto.reference?.trim().replace(/\s+/g, '-') || `POS-${dto.clientReference.slice(0, 8)}`,
       customerPhone: dto.customerPhone,
       cashSessionId: dto.cashSessionId,
       clientReference: dto.clientReference,
@@ -93,7 +96,10 @@ export class InStorePaymentsController {
     @CurrentUser() user: JwtPayload,
     @Param('attemptId') attemptId: string,
   ): Promise<InStorePaymentStatus> {
-    const state = await this.initiation.getInStorePaymentStatus(user.businessId as string, attemptId)
+    const state = await this.initiation.getInStorePaymentStatus(
+      user.businessId as string,
+      attemptId,
+    )
     if (!state) {
       throw new AppNotFoundException('Payment attempt not found.', 'PAYMENT_ATTEMPT_NOT_FOUND')
     }

@@ -209,6 +209,12 @@ export const NAV: NavEntry[] = [
         resource: Resource.ONLINE_STORE,
       },
       {
+        to: '/online/customers',
+        label: 'nav.onlineCustomers',
+        icon: 'contacts',
+        resource: Resource.ONLINE_STORE,
+      },
+      {
         to: '/online/products',
         label: 'nav.onlineProducts',
         icon: 'products',
@@ -232,6 +238,7 @@ export const NAV: NavEntry[] = [
     icon: 'org',
     children: [
       { to: '/activity', label: 'nav.activity', icon: 'shield', manager: true },
+      { to: '/activity/review', label: 'nav.review', icon: 'shield', manager: true },
       { to: '/team', label: 'nav.team', icon: 'contacts' },
       { to: '/roles', label: 'nav.roles', icon: 'shield', owner: true },
       { to: '/organization/payments', label: 'nav.payments', icon: 'deposits', owner: true },

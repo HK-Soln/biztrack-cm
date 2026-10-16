@@ -105,3 +105,10 @@ jobs:
       - name: Run migrations
         working-directory: apps/api
         run: pnpm run migration:run
+
+      # The real sales write path against the same Postgres: sales, refunds and voids synced
+      # from a till. Uses its own database (the DATABASE_URL name + _integration_test), which
+      # it creates and migrates itself.
+      - name: Integration tests
+        working-directory: apps/api
+        run: pnpm run test:integration

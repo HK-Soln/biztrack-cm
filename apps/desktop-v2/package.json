@@ -89,6 +89,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@biztrack/domain": "workspace:*",
     "@biztrack/electron-core": "workspace:*",
     "@biztrack/eslint-config": "workspace:*",
     "@biztrack/http-client": "workspace:*",

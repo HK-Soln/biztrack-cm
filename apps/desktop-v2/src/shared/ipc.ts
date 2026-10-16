@@ -204,6 +204,8 @@ export const IPC = {
   onlineProductsList: 'online:products-list',
   onlineProductSetPublished: 'online:product-set-published',
   onlineOrderUpdatePayment: 'online:order-update-payment',
+  onlineCustomersList: 'online:customers-list',
+  onlineCustomerAddContact: 'online:customer-add-contact',
   onlinePublicationsList: 'online:publications-list',
   onlinePublicationRestore: 'online:publication-restore',
   onlineGeoCountries: 'online:geo-countries',
@@ -252,6 +254,10 @@ export const IPC = {
   notificationsConnect: 'notifications:connect',
   notificationEvent: 'notifications:event',
   deeplinkNavigate: 'deeplink:navigate',
+  // Review flags (server-owned, online-only)
+  reviewFlagsList: 'review-flags:list',
+  reviewFlagsCount: 'review-flags:count',
+  reviewFlagsResolve: 'review-flags:resolve',
   // Invitee-side invitations (existing-user pending memberships)
   invitationsList: 'invitations:list',
   invitationsAccept: 'invitations:accept',
@@ -310,7 +316,7 @@ export const IPC = {
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
 export type { ChargeType } from '@biztrack/types'
-import type { RoleDiscountLimits } from '@biztrack/utils'
+import type { RoleDiscountLimits } from '@biztrack/domain'
 export type { RoleDiscountLimits }
 export type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
 export type {
@@ -1031,6 +1037,9 @@ export interface LocalProduct {
   reorderPoint: number | null
   /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
   currentStock: number
+  /** Where the stock stands (@biztrack/domain productStockStatus: a product with variants is
+   * low once one variant is out or low); null when the product does not track stock. */
+  stockStatus: 'in' | 'low' | 'out' | null
   /** Whether the product has any (non-deleted) variants — lets callers skip loading them. */
   hasVariants: boolean
   categoryName: string | null
@@ -1698,6 +1707,10 @@ import type {
   UpdateOnlineStoreRequest as UpdateOnlineStoreT,
   OnlineOrder as OnlineOrderT,
   OnlineOrderDetail as OnlineOrderDetailT,
+  OnlineCustomer as OnlineCustomerT,
+  OnlineCustomerListResult as OnlineCustomerListResultT,
+  OnlineCustomersQuery as OnlineCustomersQueryT,
+  AddOnlineCustomerToContactsRequest as AddOnlineCustomerToContactsT,
   OnlineOrderListResult as OnlineOrderListResultT,
   OnlineOrderStatus as OnlineOrderStatusT,
   UpdateOrderStatusRequest as UpdateOrderStatusT,
@@ -1809,6 +1822,20 @@ export interface RolesListQuery {
   limit?: number
   search?: string
 }
+
+// --- Review flags: what the server accepted from a till but the owner should look at ---
+export type {
+  ReviewFlag,
+  ReviewFlagsCount,
+  ReviewFlagsListResponse,
+  ReviewFlagsQuery,
+} from '@biztrack/types'
+import type {
+  ReviewFlag as ReviewFlagT,
+  ReviewFlagsCount as ReviewFlagsCountT,
+  ReviewFlagsListResponse as ReviewFlagsListResponseT,
+  ReviewFlagsQuery as ReviewFlagsQueryT,
+} from '@biztrack/types'
 
 // --- In-app notifications + invitee-side invitations ---
 export type {
@@ -1935,6 +1962,8 @@ export interface ProductInput {
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
+  /** A simple product may have stock tracking off (ruling R13); default on. */
+  trackInventory?: boolean
   isActive?: boolean
   isFeatured?: boolean
   isPublishedOnline?: boolean
@@ -2560,6 +2589,12 @@ export interface BridgeApi {
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
     updateOrderPayment: (id: string, input: UpdateOrderPaymentT) => Promise<OnlineOrderDetailT>
+    /** People who ordered online (ruling R20), and adding one to the contacts. */
+    listCustomers: (query?: OnlineCustomersQueryT) => Promise<OnlineCustomerListResultT>
+    addCustomerToContacts: (
+      id: string,
+      input: AddOnlineCustomerToContactsT,
+    ) => Promise<OnlineCustomerT>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
@@ -2640,6 +2675,12 @@ export interface BridgeApi {
     list: () => Promise<ListMyInvitationsResponseT>
     accept: (businessId: string) => Promise<AcceptInvitationResponseT>
     reject: (businessId: string) => Promise<RejectInvitationResponseT>
+  }
+  /** Review flags — server-owned, online-only, proxied through main. */
+  reviewFlags: {
+    list: (query?: ReviewFlagsQueryT) => Promise<ReviewFlagsListResponseT>
+    count: () => Promise<ReviewFlagsCountT>
+    resolve: (id: string, note?: string) => Promise<ReviewFlagT>
   }
   /** Deep links from the OS (biztrack:// custom protocol → a native-app handoff, N7). */
   deeplink: {

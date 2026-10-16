@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { productStockStatusSql, stockChangeMovementType, stockStatusSql } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { StockMovementType } from '../../shared/ipc'
 import { localBusinessDate } from './business-calendar'
@@ -22,6 +23,31 @@ export const STOCK_EXPR = `(CASE
       WHERE pv.product_id = p.id AND pv.is_deleted = 0)
     ELSE p.stock_quantity
   END)`
+
+/** A live variant's on-hand stock (`pv` alias): its IN_STOCK units for a serialized product. */
+const VARIANT_STOCK_EXPR = `(CASE WHEN p.is_serialized = 1 THEN (
+      SELECT COUNT(*) FROM product_serial_units su
+      WHERE su.variant_id = pv.id AND su.is_deleted = 0 AND su.status = 'IN_STOCK')
+    ELSE pv.stock_quantity END)`
+
+/**
+ * Where the product's stock stands, 'OUT' | 'LOW' | 'IN' (@biztrack/domain
+ * productStockStatus, the server's rule): its own thresholds, or, for a product with
+ * variants, low as soon as one variant is out or low by its own thresholds.
+ */
+export const STOCK_STATUS_EXPR = productStockStatusSql({
+  stock: STOCK_EXPR,
+  reorderPoint: 'p.reorder_point',
+  lowStockThreshold: 'p.low_stock_threshold',
+  hasVariants: `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)`,
+  anyVariantShort: `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0
+      AND ${stockStatusSql(VARIANT_STOCK_EXPR, 'pv.reorder_point', 'pv.low_stock_threshold')} <> 'IN')`,
+})
+
+/** The list filter value ('in' | 'low' | 'out') as a SQL condition on STOCK_STATUS_EXPR. */
+export function stockStatusWhere(status: 'in' | 'low' | 'out'): string {
+  return `${STOCK_STATUS_EXPR} = '${status.toUpperCase()}'`
+}
 
 /**
  * Effective selling / cost price for display (the number the UI shows):
@@ -131,9 +157,7 @@ export function recordStockMovement(
   const before = after - change
   const type: StockMovementType =
     opts.type ??
-    (change > 0 && movementCount(db, businessId, productId) === 0
-      ? 'OPENING_STOCK'
-      : 'MANUAL_ADJUSTMENT')
+    stockChangeMovementType({ change, hasHistory: movementCount(db, businessId, productId) > 0 })
   setInventoryLevel(db, businessId, productId, after, now)
   // Local trading day (BIZ-5.1) from the movement's timestamp.
   const businessDate = localBusinessDate(now)

@@ -3,6 +3,7 @@ import { AppBadRequestException } from '@/common/exceptions/app-exceptions'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductImage } from '@/entities/product-image.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
 import { Product } from '@/entities/product.entity'
 import { RestockCharge } from '@/entities/restock-charge.entity'
 import { RestockDiscount } from '@/entities/restock-discount.entity'
@@ -61,6 +62,8 @@ const makeService = () => {
       if (entity === RestockPayment) return transactionRestockPaymentRepo
       if (entity === RestockCharge) return transactionRestockChargeRepo
       if (entity === RestockDiscount) return transactionRestockDiscountRepo
+      // No variant rows: the restocked products are direct ones.
+      if (entity === ProductVariant) return { exists: jest.fn(async () => false) }
       throw new Error(`Unexpected repository request: ${entity}`)
     }),
   }
@@ -141,6 +144,7 @@ const makeService = () => {
   return {
     debtsService,
     service,
+    inventoryLevelsRepo,
     inventoryLevelsQb,
     movementsQb,
     productImagesQb,
@@ -219,6 +223,7 @@ describe('InventoryService', () => {
       totalAmount: 100,
       payments: [{ method: PaymentMethod.CASH, amount: 40 }],
       items: [{ productId: 'product-1', quantity: 2 }],
+      invoiceFileUrl: 'https://example.test/invoice.pdf',
     })
 
     expect(debtsService.createSourceDebt).toHaveBeenCalledWith(
@@ -230,6 +235,25 @@ describe('InventoryService', () => {
         originalAmount: 60,
       }),
     )
+  })
+
+  it('refuses a receipt on credit without the supplier invoice', async () => {
+    const { service, transactionProductRepo, transactionInventoryRepo } = makeService()
+    transactionProductRepo.findOne.mockResolvedValue({
+      id: 'product-1',
+      businessId: 'business-1',
+      trackInventory: true,
+    })
+    transactionInventoryRepo.findOne.mockResolvedValue(null)
+
+    await expect(
+      service.restock('business-1', 'user-1', {
+        supplierId: '5d6eb154-b738-4cc9-9cd6-b65f1743874b',
+        totalAmount: 100,
+        payments: [{ method: PaymentMethod.CASH, amount: 40 }],
+        items: [{ productId: 'product-1', quantity: 2 }],
+      }),
+    ).rejects.toMatchObject({ code: 'RESTOCK_INVOICE_REQUIRED_FOR_CREDIT' })
   })
 
   it('paginates and filters cross-product movement history', async () => {
@@ -282,36 +306,40 @@ describe('InventoryService', () => {
   })
 
   it('uses the first gallery image and falls back to product.imageUrl in alerts', async () => {
-    const { service, inventoryLevelsQb, productImagesQb } = makeService()
-    inventoryLevelsQb.getManyAndCount.mockResolvedValue([
-      [
-        {
-          productId: 'product-1',
-          quantity: 2,
-          lowStockThreshold: 5,
-          reorderPoint: 8,
-          product: {
-            name: 'Water Bottle',
-            sku: 'WATER-1',
-            imageUrl: 'https://fallback.example/product-1.png',
-            category: { name: 'Drinks' },
-          },
-        },
-        {
-          productId: 'product-2',
-          quantity: 1,
-          lowStockThreshold: 3,
-          reorderPoint: 5,
-          product: {
-            name: 'Rice',
-            sku: 'RICE-1',
-            imageUrl: 'https://fallback.example/product-2.png',
-            category: { name: 'Food' },
-          },
-        },
-      ],
-      2,
-    ])
+    const { service, inventoryLevelsRepo, productImagesQb } = makeService()
+    // The alert rows are one per product (loadAlertRows), then their count; the velocity
+    // and supplier look-ups find nothing.
+    const alertRows = [
+      {
+        businessId: 'business-1',
+        productId: 'product-1',
+        productName: 'Water Bottle',
+        sku: 'WATER-1',
+        imageUrl: 'https://fallback.example/product-1.png',
+        categoryName: 'Drinks',
+        sellingPrice: 500,
+        quantity: 2,
+        lowStockThreshold: 5,
+        reorderPoint: 8,
+        target: 8,
+      },
+      {
+        businessId: 'business-1',
+        productId: 'product-2',
+        productName: 'Rice',
+        sku: 'RICE-1',
+        imageUrl: 'https://fallback.example/product-2.png',
+        categoryName: 'Food',
+        sellingPrice: 900,
+        quantity: 1,
+        lowStockThreshold: 3,
+        reorderPoint: 5,
+        target: 5,
+      },
+    ]
+    inventoryLevelsRepo.manager.query.mockImplementation(async (sql: string) =>
+      sql.includes('COUNT(*)::int AS n') ? [{ n: 2 }] : sql.includes('AS target') ? alertRows : [],
+    )
     productImagesQb.getMany.mockResolvedValue([
       { productId: 'product-1', url: 'https://cdn.example/product-1-primary.png' } as ProductImage,
     ])
@@ -322,10 +350,13 @@ describe('InventoryService', () => {
       expect.objectContaining({
         productId: 'product-1',
         primaryImageUrl: 'https://cdn.example/product-1-primary.png',
+        // Up to twice the target (@biztrack/domain suggestedReorderQuantity).
+        shortfall: 14,
       }),
       expect.objectContaining({
         productId: 'product-2',
         primaryImageUrl: 'https://fallback.example/product-2.png',
+        shortfall: 9,
       }),
     ])
     expect(result.totalPages).toBe(1)

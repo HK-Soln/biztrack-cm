@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhone } from '@biztrack/ui/biztrack'
+import { isValidEmail as isValidContactEmail, normalizePhone } from '@biztrack/domain'
 
 // Validation messages are i18n KEYS — the screen resolves them with t(). This keeps
 // schemas the single source of truth for form rules across the app.
@@ -38,12 +39,7 @@ export const signUpSchema = z
     businessName: z.string().trim().min(1, 'signup.businessRequired'),
     name: z.string().trim().min(1, 'signup.nameRequired'),
     phone: z.string().refine(isValidPhone, 'auth.invalidPhone'),
-    email: z
-      .string()
-      .trim()
-      .email('auth.invalidEmail')
-      .or(z.literal(''))
-      .optional(),
+    email: z.string().trim().email('auth.invalidEmail').or(z.literal('')).optional(),
     password: z
       .string()
       .min(8, 'signup.passwordWeak')
@@ -94,9 +90,10 @@ export function passwordStrength(value: string): number {
 // Optional phone/email are valid only when non-empty. Messages are i18n keys.
 export const contactSchema = z.object({
   name: z.string().trim().min(1, 'ct.nameRequired'),
-  phone: z.string().refine((v) => !v.trim() || isValidPhone(v), 'ct.invalidPhone'),
-  phoneAlt: z.string().refine((v) => !v.trim() || isValidPhone(v), 'ct.invalidPhone'),
-  email: z.string().refine((v) => !v.trim() || isValidEmail(v), 'ct.invalidEmail'),
+  // Phones from any country and the email format: @biztrack/domain, as the till and server.
+  phone: z.string().refine((v) => !v.trim() || normalizePhone(v) !== null, 'ct.invalidPhone'),
+  phoneAlt: z.string().refine((v) => !v.trim() || normalizePhone(v) !== null, 'ct.invalidPhone'),
+  email: z.string().refine((v) => !v.trim() || isValidContactEmail(v), 'ct.invalidEmail'),
 })
 
 export type ContactValues = z.infer<typeof contactSchema>

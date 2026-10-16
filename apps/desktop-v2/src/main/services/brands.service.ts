@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { checkModelRemoval, planBrandRemoval, slugify, uniqueSlug } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   BrandInput,
@@ -33,16 +34,6 @@ interface LinkRow {
   id: string
   brand_id: string
   category_id: string
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 140)
 }
 
 /**
@@ -137,7 +128,7 @@ export class BrandsService {
     const categoryIds = this.resolveCategories(input.categoryIds, businessId)
     const id = randomUUID()
     const now = new Date().toISOString()
-    const slug = slugify(input.name)
+    const slug = this.uniqueSlugFor(businessId, input.name)
     this.db.run(
       `INSERT INTO brands
         (id, business_id, name, slug, logo_url, description, is_active, sort_order, is_deleted, created_at, updated_at)
@@ -173,7 +164,7 @@ export class BrandsService {
     const businessId = this.requireBusinessId()
     const categoryIds = this.resolveCategories(input.categoryIds, businessId)
     const now = new Date().toISOString()
-    const slug = slugify(input.name)
+    const slug = this.uniqueSlugFor(businessId, input.name, id)
     this.db.run(
       `UPDATE brands
        SET name = ?, slug = ?, logo_url = ?, description = ?, is_active = ?, sort_order = ?, updated_at = ?
@@ -208,17 +199,47 @@ export class BrandsService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOne(id)
-    const inUse = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM products WHERE brand_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
-      [id, businessId],
-    )
-    if (inUse) {
+    const ids = (sql: string) =>
+      this.db.query<{ id: string }>(sql, [id, businessId]).map((r) => r.id)
+    // What goes is @biztrack/domain's planBrandRemoval, as on the server, which saves the
+    // same plan when the delete syncs.
+    const plan = planBrandRemoval({
+      brandId: id,
+      productCount:
+        this.db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM products WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )?.n ?? 0,
+      modelIds: ids(
+        `SELECT id FROM models WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
+      ),
+      categoryLinkIds: ids(
+        `SELECT id FROM brand_categories WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
+      ),
+    })
+    if (!plan.ok) {
       throw new Error('This brand is still used by one or more products and cannot be deleted.')
     }
-    this.db.run(
-      `UPDATE brands SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
-      [now, id, businessId],
-    )
+    this.db.transaction(() => {
+      for (const brandId of plan.brandIds) {
+        this.db.run(
+          `UPDATE brands SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, brandId, businessId],
+        )
+      }
+      for (const modelId of plan.modelIds) {
+        this.db.run(
+          `UPDATE models SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, modelId, businessId],
+        )
+      }
+      for (const linkId of plan.categoryLinkIds) {
+        this.db.run(
+          `UPDATE brand_categories SET is_deleted = 1, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, linkId, businessId],
+        )
+      }
+    })
     this.enqueue('brands', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
     this.audit?.log({
@@ -228,6 +249,22 @@ export class BrandsService {
       entityLabel: before?.name ?? null,
       changes: { before, after: null },
     })
+  }
+
+  /** The slug the server would give (@biztrack/domain uniqueSlug, R12), deleted brands included. */
+  private uniqueSlugFor(businessId: string, name: string, selfId?: string): string {
+    const base = slugify(name, 120) || 'brand'
+    const taken = this.db.query<{ slug: string }>(
+      `SELECT slug FROM brands
+        WHERE business_id = ? AND id <> ? AND slug IS NOT NULL AND (slug = ? OR slug LIKE ?)`,
+      [businessId, selfId ?? '', base, `${base}-%`],
+    )
+    return uniqueSlug(
+      name,
+      taken.map((r) => r.slug),
+      'brand',
+      120,
+    )
   }
 
   // ---- models --------------------------------------------------------------
@@ -313,10 +350,10 @@ export class BrandsService {
     const now = new Date().toISOString()
     const before = this.getModel(modelId)
     const inUse = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM products WHERE model_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      `SELECT COUNT(*) AS n FROM products WHERE model_id = ? AND business_id = ? AND is_deleted = 0`,
       [modelId, businessId],
     )
-    if (inUse) {
+    if (checkModelRemoval(inUse?.n ?? 0)) {
       throw new Error('This model is still used by one or more products and cannot be deleted.')
     }
     this.db.run(

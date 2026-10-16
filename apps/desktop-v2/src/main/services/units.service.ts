@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { checkUnitEditable, checkUnitRemoval, decideUnit } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   LocalUnit,
@@ -21,6 +22,15 @@ interface UnitRow {
 }
 
 const UNIT_TYPES: UnitType[] = ['QUANTITY', 'WEIGHT', 'VOLUME', 'LENGTH', 'CUSTOM']
+
+const UNIT_REJECTIONS: Record<string, string> = {
+  UNIT_OF_MEASURE_NAME_REQUIRED: 'A unit needs a name.',
+  UNIT_OF_MEASURE_NAME_TOO_LONG: 'A unit name is at most 50 characters.',
+  UNIT_OF_MEASURE_ABBREVIATION_TOO_LONG: 'An abbreviation is at most 10 characters.',
+  UNIT_OF_MEASURE_TYPE_INVALID: 'Choose a unit type.',
+  UNIT_OF_MEASURE_EXISTS: 'You already have a unit with this name.',
+}
+
 function normalizeType(value: string | null | undefined): UnitType {
   const upper = (value ?? '').toUpperCase() as UnitType
   return UNIT_TYPES.includes(upper) ? upper : 'CUSTOM'
@@ -70,23 +80,23 @@ export class UnitsService {
     const businessId = this.requireBusinessId()
     const id = randomUUID()
     const now = new Date().toISOString()
-    const type = normalizeType(input.type)
+    const unit = this.decide(businessId, input)
     this.db.run(
       `INSERT INTO unit_of_measures
         (id, name, abbreviation, business_id, type, is_active, is_deleted, is_default, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
       [
         id,
-        input.name.trim().toUpperCase(),
-        input.abbreviation.trim(),
+        unit.name,
+        unit.abbreviation,
         businessId,
-        type,
+        unit.type,
         input.isActive === false ? 0 : 1,
         now,
         now,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
+    this.enqueue(id, 'UPSERT', businessId, this.payload(unit, input), now)
     this.onMutated()
     const created = this.getOne(id)!
     this.audit?.log({
@@ -101,30 +111,24 @@ export class UnitsService {
 
   update(id: string, input: UnitInput): LocalUnit {
     const businessId = this.requireBusinessId()
-    const existing = this.requireOwnedUnit(id, businessId)
+    this.requireOwnedUnit(id, businessId)
     const now = new Date().toISOString()
-    const type = normalizeType(input.type)
+    const unit = this.decide(businessId, input, id)
     this.db.run(
       `UPDATE unit_of_measures
        SET name = ?, abbreviation = ?, type = ?, is_active = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
-        input.name.trim().toUpperCase(),
-        input.abbreviation.trim(),
-        type,
+        unit.name,
+        unit.abbreviation,
+        unit.type,
         input.isActive === false ? 0 : 1,
         now,
         id,
         businessId,
       ],
     )
-    this.enqueue(
-      id,
-      'UPSERT',
-      businessId,
-      this.payload(input, type, existing.is_default === 1),
-      now,
-    )
+    this.enqueue(id, 'UPSERT', businessId, this.payload(unit, input), now)
     this.onMutated()
     const updated = this.getOne(id)!
     this.audit?.log({
@@ -143,10 +147,10 @@ export class UnitsService {
     const now = new Date().toISOString()
     const before = this.getOne(id)
     const inUse = this.db.get<{ n: number }>(
-      `SELECT 1 AS n FROM products WHERE unit_of_measure_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      `SELECT COUNT(*) AS n FROM products WHERE unit_of_measure_id = ? AND business_id = ? AND is_deleted = 0`,
       [id, businessId],
     )
-    if (inUse) {
+    if (checkUnitRemoval(inUse?.n ?? 0)) {
       throw new Error('This unit is still used by one or more products and cannot be deleted.')
     }
     this.db.run(
@@ -181,7 +185,11 @@ export class UnitsService {
       [id],
     )
     if (!row) throw new Error('Unit not found.')
-    if (row.business_id !== businessId) throw new Error('System units cannot be modified.')
+    if (row.business_id !== null && row.business_id !== businessId)
+      throw new Error('Unit not found.')
+    if (checkUnitEditable({ businessId: row.business_id, isDefault: row.is_default === 1 })) {
+      throw new Error('System units cannot be modified.')
+    }
     return row
   }
 
@@ -191,14 +199,34 @@ export class UnitsService {
     return businessId
   }
 
-  private payload(input: UnitInput, type: UnitType, isDefault = false): Record<string, unknown> {
-    return {
-      name: input.name.trim().toUpperCase(),
-      abbreviation: input.abbreviation.trim(),
-      type,
-      isDefault,
-      isActive: input.isActive !== false,
-    }
+  /**
+   * The unit as @biztrack/domain stores it (R12), checked against the business's other
+   * units, deleted ones included, as the server checks them.
+   */
+  private decide(
+    businessId: string,
+    input: UnitInput,
+    selfId?: string,
+  ): { name: string; abbreviation: string; type: UnitType } {
+    const others = this.db.query<{ name: string }>(
+      `SELECT name FROM unit_of_measures WHERE business_id = ? AND id <> ?`,
+      [businessId, selfId ?? ''],
+    )
+    const decision = decideUnit({
+      name: input.name,
+      abbreviation: input.abbreviation,
+      type: input.type ?? 'CUSTOM',
+      takenNames: others.map((u) => u.name),
+    })
+    if (!decision.ok) throw new Error(UNIT_REJECTIONS[decision.code] ?? 'This unit is not valid.')
+    return { name: decision.name, abbreviation: decision.abbreviation, type: decision.type }
+  }
+
+  private payload(
+    unit: { name: string; abbreviation: string; type: UnitType },
+    input: UnitInput,
+  ): Record<string, unknown> {
+    return { ...unit, isDefault: false, isActive: input.isActive !== false }
   }
 
   /** Local write + sync_outbox enqueue, coalesced per (entity, record_id). */

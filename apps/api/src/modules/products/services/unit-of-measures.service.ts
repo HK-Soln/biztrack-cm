@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
+import { checkUnitEditable, checkUnitRemoval, decideUnit } from '@biztrack/domain'
 import type {
   CreateUnitOfMeasureRequest,
+  UnitOfMeasureType,
   UnitOfMeasuresQuery,
   UpdateUnitOfMeasureRequest,
 } from '@biztrack/types'
@@ -77,28 +79,15 @@ export class UnitOfMeasuresService {
 
   async create(businessId: string, dto: CreateUnitOfMeasureRequest) {
     try {
-      const existing = await this.unitsRepo
-        .createQueryBuilder('uom')
-        .where('uom.business_id = :businessId', { businessId })
-        .andWhere('LOWER(uom.name) = LOWER(:name)', { name: dto.name.trim() })
-        .getOne()
-
-      if (existing) {
-        throw new AppConflictException(
-          await this.i18n.translate('errors.unit_of_measure_exists'),
-          'UNIT_OF_MEASURE_EXISTS',
-        )
-      }
-
-      const unit = this.unitsRepo.create({
-        businessId,
-        name: dto.name.trim(),
-        abbreviation: dto.abbreviation.trim(),
-        type: dto.type,
-        isDefault: false,
-        isActive: true,
-      } as Partial<UnitOfMeasure>)
-      return this.unitsRepo.save(unit)
+      const unit = await this.decide(businessId, dto)
+      return this.unitsRepo.save(
+        this.unitsRepo.create({
+          businessId,
+          ...unit,
+          isDefault: false,
+          isActive: true,
+        } as Partial<UnitOfMeasure>),
+      )
     } catch (error) {
       return this.handleServiceError('create', error, { businessId, name: dto.name })
     }
@@ -106,40 +95,20 @@ export class UnitOfMeasuresService {
 
   async update(id: string, businessId: string, dto: UpdateUnitOfMeasureRequest) {
     try {
-      const unit = await this.findEditableById(id, businessId)
-      const name = dto.name?.trim() ?? unit.name
-      const abbreviation = dto.abbreviation?.trim() ?? unit.abbreviation
-      const type = dto.type ?? unit.type
-
-      if (!name) {
-        throw new AppBadRequestException(
-          await this.i18n.translate('errors.validation_failed'),
-          'UNIT_OF_MEASURE_NAME_REQUIRED',
-        )
-      }
-
-      if (dto.name && dto.name.trim().toLowerCase() !== unit.name.trim().toLowerCase()) {
-        const existing = await this.unitsRepo
-          .createQueryBuilder('uom')
-          .withDeleted()
-          .where('uom.business_id = :businessId', { businessId })
-          .andWhere('LOWER(uom.name) = LOWER(:name)', { name })
-          .andWhere('uom.id <> :id', { id })
-          .getOne()
-
-        if (existing) {
-          throw new AppConflictException(
-            await this.i18n.translate('errors.unit_of_measure_exists'),
-            'UNIT_OF_MEASURE_EXISTS',
-          )
-        }
-      }
+      const existing = await this.findEditableById(id, businessId)
+      const unit = await this.decide(
+        businessId,
+        {
+          name: dto.name ?? existing.name,
+          abbreviation: dto.abbreviation ?? existing.abbreviation,
+          type: dto.type ?? existing.type,
+        },
+        id,
+      )
 
       await this.unitsRepo.update(id, {
-        name,
-        abbreviation,
-        type,
-        isActive: dto.isActive ?? unit.isActive,
+        ...unit,
+        isActive: dto.isActive ?? existing.isActive,
       })
 
       return this.findEditableById(id, businessId)
@@ -159,7 +128,7 @@ export class UnitOfMeasuresService {
         },
       })
 
-      if (productCount > 0) {
+      if (checkUnitRemoval(productCount)) {
         throw new AppConflictException(
           await this.i18n.translate('errors.unit_of_measure_in_use'),
           'UNIT_OF_MEASURE_IN_USE',
@@ -181,6 +150,45 @@ export class UnitOfMeasuresService {
     }
   }
 
+  /**
+   * The unit as @biztrack/domain stores it (R12), checked against the business's other
+   * units, deleted ones included: the unique name index counts them.
+   */
+  private async decide(
+    businessId: string,
+    input: { name?: string | null; abbreviation?: string | null; type?: string | null },
+    selfId?: string,
+  ): Promise<{ name: string; abbreviation: string; type: UnitOfMeasureType }> {
+    const others = await this.unitsRepo.find({
+      select: { id: true, name: true },
+      where: { businessId },
+      withDeleted: true,
+    })
+    const decision = decideUnit({
+      name: input.name,
+      abbreviation: input.abbreviation,
+      type: input.type,
+      takenNames: others.filter((u) => u.id !== selfId).map((u) => u.name),
+    })
+    if (decision.ok) {
+      return {
+        name: decision.name,
+        abbreviation: decision.abbreviation,
+        type: decision.type as UnitOfMeasureType,
+      }
+    }
+    if (decision.code === 'UNIT_OF_MEASURE_EXISTS') {
+      throw new AppConflictException(
+        await this.i18n.translate('errors.unit_of_measure_exists'),
+        'UNIT_OF_MEASURE_EXISTS',
+      )
+    }
+    throw new AppBadRequestException(
+      await this.i18n.translate('errors.validation_failed'),
+      decision.code,
+    )
+  }
+
   private async findEditableById(id: string, businessId: string) {
     const unit = await this.unitsRepo.findOne({
       where: { id, businessId, deletedAt: IsNull() },
@@ -193,7 +201,7 @@ export class UnitOfMeasuresService {
       )
     }
 
-    if (unit.isDefault || !unit.businessId) {
+    if (checkUnitEditable(unit)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.unit_of_measure_system_immutable'),
         'UNIT_OF_MEASURE_SYSTEM_IMMUTABLE',

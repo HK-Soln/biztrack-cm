@@ -15,6 +15,7 @@ import {
 import type { SalesService } from '../services/sales.service'
 import type { SavingsService } from '../services/savings.service'
 import type { DocumentService } from '../services/document.service'
+import { requireStaff, type RoleSource } from './staff-guard'
 
 const RECEIPT_WIDTH_MM = 58
 
@@ -70,6 +71,7 @@ export function registerSalesIpc(
   savings: SavingsService,
   documents: DocumentService,
   http: HttpClient,
+  getRole: RoleSource,
 ): void {
   ipcMain.handle(IPC.salesCreate, (_e, input: SaleInput) => sales.createSale(input))
   ipcMain.handle(IPC.salesMyDiscountLimits, () => sales.myDiscountLimits())
@@ -100,14 +102,16 @@ export function registerSalesIpc(
     sales.flaggedDiscounts(query),
   )
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
-  ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) =>
-    sales.voidSale(saleId, reason),
-  )
+  ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) => {
+    requireStaff(getRole, 'SALE_VOID')
+    return sales.voidSale(saleId, reason)
+  })
   // Refund/return (BIZ-1.8) — offline-first like void: records the return locally + re-enqueues
   // the sale so the API applies its own authoritative return on sync.
-  ipcMain.handle(IPC.salesRefund, (_e, saleId: string, input: RefundSaleInput) =>
-    sales.refundSale(saleId, input),
-  )
+  ipcMain.handle(IPC.salesRefund, (_e, saleId: string, input: RefundSaleInput) => {
+    requireStaff(getRole, 'SALE_REFUND')
+    return sales.refundSale(saleId, input)
+  })
   ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) =>
     savings.getForCustomer(customerId),
   )

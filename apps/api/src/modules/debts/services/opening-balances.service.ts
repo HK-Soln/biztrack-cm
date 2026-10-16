@@ -7,14 +7,20 @@ import {
   DebtSource,
   DebtStatus,
   clampCreditDays,
-  type AgeingEntry,
   type AgeingReport,
   type ContactNetPosition,
   type ContactOpeningBalance,
   type JwtPayload,
   type UpsertOpeningBalanceRequest,
 } from '@biztrack/types'
-import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
+import {
+  buildAgeingReport,
+  checkOpeningBalance,
+  contactNetPosition,
+  debtAfterChange,
+  OPEN_DEBT_STATUSES,
+  toWholeXaf,
+} from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
 import { In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -31,8 +37,6 @@ import { Debt } from '@/entities/debt.entity'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
-
-const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * Every opening balance is mirrored as a `debt` row (sourceType=OPENING_BALANCE) so it can be
@@ -69,16 +73,29 @@ export class OpeningBalancesService {
   ): Promise<ContactOpeningBalance> {
     try {
       const contact = await this.requireContact(contactId, businessId)
-      this.assertDirectionCompatibleWithType(contact.type as ContactType, dto.direction)
-      this.assertDateOnly(dto.asOfDate)
-
-      const amount = this.roundMoney(dto.amount)
-      if (amount <= 0) {
+      // Amount, date and direction: @biztrack/domain checkOpeningBalance, as sync and the till.
+      const checked = checkOpeningBalance({
+        amount: dto.amount,
+        direction: dto.direction,
+        contactType: contact.type as ContactType,
+        asOfDate: dto.asOfDate,
+      })
+      if (!checked.ok) {
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.opening_balance_amount_invalid' as never),
-          'OPENING_BALANCE_AMOUNT_INVALID',
+          {
+            OPENING_BALANCE_AMOUNT_INVALID: await this.i18n.translate(
+              'errors.opening_balance_amount_invalid' as never,
+            ),
+            OPENING_BALANCE_DIRECTION_INVALID:
+              contact.type === ContactType.SUPPLIER
+                ? 'Supplier contacts can only have payable opening balances'
+                : 'Customer contacts can only have receivable opening balances',
+            OPENING_BALANCE_DATE_INVALID: 'Opening balance date must be in YYYY-MM-DD format',
+          }[checked.code],
+          checked.code,
         )
       }
+      const { amount } = checked
 
       const existing = await this.openingBalancesRepo.findOne({
         where: { businessId, contactId, direction: dto.direction },
@@ -177,19 +194,18 @@ export class OpeningBalancesService {
     })
 
     if (existing) {
-      const paid = this.roundMoney((existing.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-      const settled = paid >= amount - 1e-6
+      // Where the debt now stands (@biztrack/domain debtAfterChange, as the till).
+      const next = debtAfterChange({
+        originalAmount: amount,
+        paidAmount: (existing.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
+        status: existing.status,
+        settledAt: existing.settledAt,
+        at: new Date(),
+      })
       existing.originalAmount = amount
       existing.sourceReference = OPENING_BALANCE_DEBT_REFERENCE
-      existing.status =
-        existing.status === DebtStatus.WRITTEN_OFF
-          ? DebtStatus.WRITTEN_OFF
-          : settled
-            ? DebtStatus.SETTLED
-            : paid > 0
-              ? DebtStatus.PARTIALLY_PAID
-              : DebtStatus.OUTSTANDING
-      existing.settledAt = settled ? (existing.settledAt ?? new Date()) : null
+      existing.status = next.status
+      existing.settledAt = next.settledAt
       await this.debtsRepo.save(existing)
       return
     }
@@ -224,52 +240,20 @@ export class OpeningBalancesService {
         relations: ['payments'],
       })
 
-      let receivableOb = 0
-      let payableOb = 0
-      let receivableDebts = 0
-      let receivablePaid = 0
-      let payableDebts = 0
-      let payablePaid = 0
-
-      for (const debt of debts) {
-        if (debt.status === DebtStatus.WRITTEN_OFF) continue
-        const paid = this.roundMoney((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-        const outstanding = this.roundMoney(Math.max(0, debt.originalAmount - paid))
-        const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
-
-        if (debt.direction === DebtDirection.RECEIVABLE) {
-          if (isOpening) receivableOb = this.roundMoney(receivableOb + outstanding)
-          else receivableDebts = this.roundMoney(receivableDebts + outstanding)
-          receivablePaid = this.roundMoney(receivablePaid + paid)
-        } else {
-          if (isOpening) payableOb = this.roundMoney(payableOb + outstanding)
-          else payableDebts = this.roundMoney(payableDebts + outstanding)
-          payablePaid = this.roundMoney(payablePaid + paid)
-        }
-      }
-
-      const receivableNet = this.roundMoney(receivableOb + receivableDebts)
-      const payableNet = this.roundMoney(payableOb + payableDebts)
-
+      // The net position is @biztrack/domain's (contactNetPosition).
       return {
         contact: {
           id: contact.id,
           name: contact.name,
           phone: contact.phone ?? null,
         },
-        receivable: {
-          openingBalance: receivableOb,
-          totalDebts: receivableDebts,
-          totalPaid: receivablePaid,
-          netBalance: receivableNet,
-        },
-        payable: {
-          openingBalance: payableOb,
-          totalDebts: payableDebts,
-          totalPaid: payablePaid,
-          netBalance: payableNet,
-        },
-        net: this.roundMoney(receivableNet - payableNet),
+        ...contactNetPosition(
+          debts.map((debt) => ({
+            ...debt,
+            dueDate: debt.dueDate ?? null,
+            paidAmount: (debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
+          })),
+        ),
       }
     } catch (error) {
       return this.handleServiceError('getNetPosition', error, { contactId, businessId })
@@ -279,7 +263,6 @@ export class OpeningBalancesService {
   async getAgeingReport(businessId: string, direction: DebtDirection): Promise<AgeingReport> {
     try {
       const now = new Date()
-      const today = now.toISOString().slice(0, 10)
 
       // D9: bucket every debt off its EFFECTIVE due date — the explicit due_date, or
       // created_at + the business's default credit period when none was set.
@@ -290,106 +273,31 @@ export class OpeningBalancesService {
       const creditDays = clampCreditDays(business?.defaultCreditDays)
 
       const debts = await this.debtsRepo.find({
-        where: {
-          businessId,
-          direction,
-          status: In([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID]),
-        },
+        where: { businessId, direction, status: In([...OPEN_DEBT_STATUSES]) },
         relations: ['contact', 'payments'],
       })
 
-      const contactMap = new Map<
-        string,
-        {
-          contact: Contact
-          openingBalance: number
-          current: number
-          moderate: number
-          aged: number
-          overdue: number
-          pastDue: number
-          total: number
-        }
-      >()
-
+      // The buckets, totals and order are @biztrack/domain's (buildAgeingReport), as the till.
+      const contacts = new Map<string, { name: string; phone: string | null }>()
       for (const debt of debts) {
-        if (!debt.contact) continue
-        const paid = this.roundMoney((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-        const outstanding = this.roundMoney(Math.max(0, debt.originalAmount - paid))
-        if (outstanding <= 0) continue
-
-        const entry = contactMap.get(debt.contactId) ?? {
-          contact: debt.contact,
-          openingBalance: 0,
-          current: 0,
-          moderate: 0,
-          aged: 0,
-          overdue: 0,
-          pastDue: 0,
-          total: 0,
+        if (debt.contact) {
+          contacts.set(debt.contactId, {
+            name: debt.contact.name,
+            phone: debt.contact.phone ?? null,
+          })
         }
-
-        // The opening balance keeps its own column (not aged); every other debt is
-        // bucketed by how far past its effective due date it is (7/15/30 boundaries).
-        if (debt.sourceType === DebtSource.OPENING_BALANCE) {
-          entry.openingBalance = this.roundMoney(entry.openingBalance + outstanding)
-        } else {
-          const due = effectiveDueDate(debt, creditDays)
-          const overdueDays = daysPastDue(due, now)
-          if (overdueDays <= 7) {
-            entry.current = this.roundMoney(entry.current + outstanding)
-          } else if (overdueDays <= 15) {
-            entry.moderate = this.roundMoney(entry.moderate + outstanding)
-          } else if (overdueDays <= 30) {
-            entry.aged = this.roundMoney(entry.aged + outstanding)
-          } else {
-            entry.overdue = this.roundMoney(entry.overdue + outstanding)
-          }
-          if (overdueDays > 0) {
-            entry.pastDue = this.roundMoney(entry.pastDue + outstanding)
-          }
-          entry.total = this.roundMoney(entry.total + outstanding)
-        }
-        contactMap.set(debt.contactId, entry)
       }
-
-      const entries: AgeingEntry[] = [...contactMap.values()].map((e) => ({
-        contactId: e.contact.id,
-        contactName: e.contact.name,
-        contactPhone: e.contact.phone ?? null,
-        openingBalance: e.openingBalance,
-        current: e.current,
-        moderate: e.moderate,
-        aged: e.aged,
-        overdue: e.overdue,
-        pastDue: e.pastDue,
-        totalOutstanding: this.roundMoney(e.openingBalance + e.total),
-      }))
-
-      entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
-
-      const totals = entries.reduce(
-        (acc, e) => ({
-          openingBalance: this.roundMoney(acc.openingBalance + e.openingBalance),
-          current: this.roundMoney(acc.current + e.current),
-          moderate: this.roundMoney(acc.moderate + e.moderate),
-          aged: this.roundMoney(acc.aged + e.aged),
-          overdue: this.roundMoney(acc.overdue + e.overdue),
-          pastDue: this.roundMoney(acc.pastDue + e.pastDue),
-          totalOutstanding: this.roundMoney(acc.totalOutstanding + e.totalOutstanding),
-        }),
-        {
-          openingBalance: 0,
-          current: 0,
-          moderate: 0,
-          aged: 0,
-          overdue: 0,
-          pastDue: 0,
-          totalOutstanding: 0,
-        },
-      )
-
-      return { direction, asOf: today, entries, totals }
+      return buildAgeingReport({
+        direction,
+        creditDays,
+        now,
+        contacts,
+        debts: debts.map((debt) => ({
+          ...debt,
+          dueDate: debt.dueDate ?? null,
+          paidAmount: (debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
+        })),
+      })
     } catch (error) {
       return this.handleServiceError('getAgeingReport', error, { businessId, direction })
     }
@@ -419,9 +327,9 @@ export class OpeningBalancesService {
     for (const row of rows) {
       const entry = result.get(row.contactId) ?? { receivable: 0, payable: 0 }
       if (row.direction === DebtDirection.RECEIVABLE) {
-        entry.receivable = this.roundMoney(row.amount)
+        entry.receivable = toWholeXaf(row.amount)
       } else {
-        entry.payable = this.roundMoney(row.amount)
+        entry.payable = toWholeXaf(row.amount)
       }
       result.set(row.contactId, entry)
     }
@@ -455,37 +363,9 @@ export class OpeningBalancesService {
     return contact
   }
 
-  private assertDirectionCompatibleWithType(type: ContactType, direction: DebtDirection) {
-    if (direction === DebtDirection.RECEIVABLE && type === ContactType.SUPPLIER) {
-      throw new AppBadRequestException(
-        'Supplier contacts can only have payable opening balances',
-        'OPENING_BALANCE_DIRECTION_INVALID',
-      )
-    }
-    if (direction === DebtDirection.PAYABLE && type === ContactType.CUSTOMER) {
-      throw new AppBadRequestException(
-        'Customer contacts can only have receivable opening balances',
-        'OPENING_BALANCE_DIRECTION_INVALID',
-      )
-    }
-  }
-
-  private assertDateOnly(value: string) {
-    if (!DATE_ONLY_REGEX.test(value)) {
-      throw new AppBadRequestException(
-        'Opening balance date must be in YYYY-MM-DD format',
-        'OPENING_BALANCE_DATE_INVALID',
-      )
-    }
-  }
-
   private daysBetween(createdAt: Date, now: Date): number {
     const msPerDay = 1000 * 60 * 60 * 24
     return Math.floor((now.getTime() - createdAt.getTime()) / msPerDay)
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private async handleServiceError(

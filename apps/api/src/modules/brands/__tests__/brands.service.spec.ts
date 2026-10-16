@@ -33,8 +33,24 @@ function makeService(
     }),
     update: jest.fn(async () => ({ affected: 1 })),
     find: jest.fn(async () => [brand]),
-    createQueryBuilder: jest.fn(),
-    manager: { query: jest.fn().mockResolvedValue(opts.brandInUse ? [{ n: 1 }] : []) },
+    // uniqueSlug reads the slugs already taken: none here.
+    createQueryBuilder: jest.fn(() => {
+      const qb: any = {
+        withDeleted: () => qb,
+        select: () => qb,
+        where: () => qb,
+        andWhere: () => qb,
+        getRawMany: async () => [],
+      }
+      return qb
+    }),
+    // The removal plan loads usage and the brand's models and links through the manager.
+    manager: {
+      query: jest.fn().mockResolvedValue([{ n: opts.brandInUse ? 1 : 0 }]),
+      getRepository: jest.fn(() => ({
+        find: jest.fn(async () => [{ id: 'linked-1' }]),
+      })),
+    },
   }
   const modelsRepo = {
     findOne: jest.fn(async () => opts.model ?? null),
@@ -55,6 +71,7 @@ function makeService(
     save: jest.fn(async (x: any) => x),
     create: jest.fn((x: any) => x),
     softDelete: jest.fn(async () => ({})),
+    update: jest.fn(async () => ({})),
   }
   const manager = {
     getRepository: jest.fn((e: unknown) => {
@@ -123,10 +140,16 @@ describe('BrandsService', () => {
   it('remove: soft-deletes models + links + brand, audits DELETE', async () => {
     const { service, mBrandRepo, mModelRepo, mLinkRepo, auditService } = makeService()
     await service.remove('b1', 'biz-1', ctxArg)
-    expect(mModelRepo.update).toHaveBeenCalled()
-    expect(mLinkRepo.softDelete).toHaveBeenCalled()
+    expect(mModelRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: 'biz-1' }),
+      expect.objectContaining({ isActive: false }),
+    )
+    expect(mLinkRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: 'biz-1' }),
+      expect.objectContaining({ deletedAt: expect.any(Date) }),
+    )
     expect(mBrandRepo.update).toHaveBeenCalledWith(
-      { id: 'b1', businessId: 'biz-1' },
+      expect.objectContaining({ businessId: 'biz-1' }),
       expect.objectContaining({ isActive: false }),
     )
     expect(auditService.log).toHaveBeenCalledWith(

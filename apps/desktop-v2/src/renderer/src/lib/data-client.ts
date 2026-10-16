@@ -1,4 +1,10 @@
 import type {
+  AddOnlineCustomerToContactsRequest,
+  OnlineCustomer,
+  OnlineCustomerListResult,
+  OnlineCustomersQuery,
+} from '@biztrack/types'
+import type {
   AttributeGroupInput,
   AttributeGroupListQuery,
   AttributeOptionInput,
@@ -139,6 +145,10 @@ import type {
   ListMyInvitationsResponse,
   AcceptInvitationResponse,
   RejectInvitationResponse,
+  ReviewFlag,
+  ReviewFlagsCount,
+  ReviewFlagsListResponse,
+  ReviewFlagsQuery,
   OnlineOrdersQuery,
   OnlineSlugCheck,
   CountryView,
@@ -566,6 +576,11 @@ export interface DataClient {
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
     updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) => Promise<OnlineOrderDetail>
+    listCustomers: (query?: OnlineCustomersQuery) => Promise<OnlineCustomerListResult>
+    addCustomerToContacts: (
+      id: string,
+      input: AddOnlineCustomerToContactsRequest,
+    ) => Promise<OnlineCustomer>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQuery) => Promise<PaginatedResult<OnlineAdminProduct>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
@@ -653,6 +668,12 @@ export interface DataClient {
     connect: () => Promise<void>
     onEvent: (cb: (payload: NotificationEventPayload) => void) => () => void
   }
+  /** Review flags — server-owned and online-only on both builds. */
+  reviewFlags: {
+    list: (query?: ReviewFlagsQuery) => Promise<ReviewFlagsListResponse>
+    count: () => Promise<ReviewFlagsCount>
+    resolve: (id: string, note?: string) => Promise<ReviewFlag>
+  }
   /** OS deep links (biztrack:// → native-app handoff). No-op in the browser build. */
   deeplink: {
     onNavigate: (cb: (path: string) => void) => () => void
@@ -708,6 +729,7 @@ import {
   cloudRoles,
   cloudTeam,
   cloudNotificationsRest,
+  cloudReviewFlags,
   cloudInvitations,
   cloudBusiness,
   cloudNotificationSettings,
@@ -1017,6 +1039,8 @@ function electronAdapter(): DataClient {
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
       updateOrderPayment: (id, input) => window.api.online.updateOrderPayment(id, input),
+      listCustomers: (query) => window.api.online.listCustomers(query),
+      addCustomerToContacts: (id, input) => window.api.online.addCustomerToContacts(id, input),
       checkSlug: (slug) => window.api.online.checkSlug(slug),
       listProducts: (query) => window.api.online.listProducts(query),
       setProductPublished: (id, published) => window.api.online.setProductPublished(id, published),
@@ -1080,6 +1104,11 @@ function electronAdapter(): DataClient {
       markAllRead: () => window.api.notifications.markAllRead(),
       connect: () => window.api.notifications.connect(),
       onEvent: (cb) => window.api.notifications.onEvent(cb),
+    },
+    reviewFlags: {
+      list: (query) => window.api.reviewFlags.list(query),
+      count: () => window.api.reviewFlags.count(),
+      resolve: (id, note) => window.api.reviewFlags.resolve(id, note),
     },
     deeplink: {
       onNavigate: (cb) => window.api.deeplink.onNavigate(cb),
@@ -1187,6 +1216,7 @@ function cloudAdapter(): DataClient {
       connect: cloudRealtimeConnect,
       onEvent: cloudRealtimeOnEvent,
     },
+    reviewFlags: cloudReviewFlags,
     // The browser build IS the deeplink target (no native protocol); nothing to subscribe to.
     deeplink: { onNavigate: () => () => {} },
     invitations: cloudInvitations,

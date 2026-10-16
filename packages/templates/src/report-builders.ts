@@ -2,6 +2,7 @@
 // @biztrack/templates so the frontend (on-screen render) and the backend (PDF/Excel
 // compilation) build the exact same report. Money/number formatting is done here so the
 // generic renderer stays purely presentational.
+import { incomeStatement } from '@biztrack/domain'
 import type {
   AgeingReport,
   BuiltReportResult,
@@ -1147,12 +1148,19 @@ export function buildIncomeStatementReport(
 ): BuiltReportResult {
   const fr = isFr(opts.locale)
   const m = (x: number) => formatMoney(x, data.currency, opts.locale)
-  const grossMargin = data.revenue - data.cogs
   const otherIncomeLines = data.otherIncomeByCategory ?? []
-  const otherIncome = otherIncomeLines.length
-    ? otherIncomeLines.reduce((s, o) => s + o.amount, 0)
-    : (data.otherIncome ?? 0)
-  const operating = grossMargin + otherIncome - data.totalExpenses
+  // The figures are @biztrack/domain's income statement, the one the API's P&L uses.
+  const statement = incomeStatement({
+    revenue: data.revenue,
+    costOfGoods: data.cogs,
+    otherIncome: otherIncomeLines.length
+      ? otherIncomeLines.reduce((s, o) => s + o.amount, 0)
+      : (data.otherIncome ?? 0),
+    totalExpenses: data.totalExpenses,
+  })
+  const grossMargin = statement.grossProfit
+  const otherIncome = statement.otherIncome
+  const operating = statement.netProfit
   const L = fr
     ? {
         title: 'Compte de résultat',

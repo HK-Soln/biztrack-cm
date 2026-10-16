@@ -1,3 +1,4 @@
+import { slugify } from '@biztrack/domain'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -8,14 +9,6 @@ import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { CategoryInput, LocalAttributeGroup, LocalCategory } from '@shared/ipc'
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
 
 const LEVEL_KEY: MessageKey[] = ['cat.levelDept', 'cat.levelCat', 'cat.levelSub']
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
+import { DebtsService } from '../services/debts.service'
 import { SalesService } from '../services/sales.service'
 
 // BIZ-1.8 — offline-first refund/return (SalesService.refundSale), mirroring voidSale: it records
@@ -17,7 +18,13 @@ function makeService(db: DatabaseService): SalesService {
     () => {},
     () => 'u-1',
     () => 'Cashier',
-    {} as never,
+    // The receivable of a returned sale is decided here too, so the debts service is real.
+    new DebtsService(
+      db,
+      () => BIZ,
+      () => {},
+      () => 'u-1',
+    ),
     {} as never,
   )
 }

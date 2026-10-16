@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import QRCode from 'qrcode'
 import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
-import { majorToMinor, minorToMajor } from '@biztrack/utils'
+import { majorToMinor, minorToMajor } from '@biztrack/domain'
 import type { PaymentLinkView } from '@shared/ipc'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
@@ -29,9 +29,11 @@ export function GeneralLinkDialog({ open, onClose }: { open: boolean; onClose: (
   const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState<PaymentLinkView | null>(null)
   const [qr, setQr] = useState<string | null>(null)
-  const [settle, setSettle] = useState<{ paidMinor: number; totalMinor: number; done: boolean } | null>(
-    null,
-  )
+  const [settle, setSettle] = useState<{
+    paidMinor: number
+    totalMinor: number
+    done: boolean
+  } | null>(null)
 
   const categoriesQ = useQuery({
     queryKey: ['incomeCategories'],
@@ -68,7 +70,11 @@ export function GeneralLinkDialog({ open, onClose }: { open: boolean; onClose: (
     if (!link) return
     const off = dataClient.payments.onLinkEvent((e) => {
       if (e.paymentLinkId !== link.id) return
-      setSettle({ paidMinor: e.amountPaidMinor, totalMinor: e.amountMinor, done: e.status === 'PAID' })
+      setSettle({
+        paidMinor: e.amountPaidMinor,
+        totalMinor: e.amountMinor,
+        done: e.status === 'PAID',
+      })
       void Promise.resolve(dataClient.sync.trigger())
         .catch(() => undefined)
         .then(() => qc.invalidateQueries())
@@ -219,7 +225,10 @@ export function GeneralLinkDialog({ open, onClose }: { open: boolean; onClose: (
                 ? t('paymentLink.livePaid')
                 : t('paymentLink.livePartial')
                     .replace('{paid}', money.format(minorToMajor(settle.paidMinor, link.currency)))
-                    .replace('{total}', money.format(minorToMajor(settle.totalMinor, link.currency)))}
+                    .replace(
+                      '{total}',
+                      money.format(minorToMajor(settle.totalMinor, link.currency)),
+                    )}
             </div>
           ) : null}
           {qr && !settle?.done ? (

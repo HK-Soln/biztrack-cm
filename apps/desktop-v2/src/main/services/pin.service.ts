@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { isStrongPin } from '@biztrack/utils'
+import { isStrongPin } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { SetMemberPinResponse } from '@biztrack/types'
 import type { PinVerifyReason, PinVerifyResult } from '../../shared/ipc'
@@ -17,7 +17,7 @@ export interface PinHttp {
 
 /**
  * A PIN is exactly 6 digits (1e6 keyspace) and must pass the strength rules in
- * @biztrack/utils (no ≥3-in-a-row, no sequences, no well-known patterns). The hash is
+ * @biztrack/domain (no ≥3-in-a-row, no sequences, no well-known patterns). The hash is
  * distributed to every in-business device, so weak PINs are trivially brute-forced;
  * the raised bcrypt cost below plus these rules keep that attack impractical.
  */

@@ -108,25 +108,35 @@ export class CategoriesController {
 
   @Get('selectable')
   @RequireResource(Resource.PRODUCTS_VIEW)
-  @ApiOperation({ summary: 'List terminal (leaf) categories a product can target, optionally brand-scoped' })
+  @ApiOperation({
+    summary: 'List terminal (leaf) categories a product can target, optionally brand-scoped',
+  })
   async selectable(
     @CurrentUser() user: JwtPayload,
     @Query('brandId') brandId?: string,
     @Query('search') search?: string,
   ): Promise<ProductCategory[]> {
-    const rows = await this.categoriesService.listSelectable(user.businessId as string, { brandId, search })
+    const rows = await this.categoriesService.listSelectable(user.businessId as string, {
+      brandId,
+      search,
+    })
     return rows.map((category) => serializeDto(CategoryDto.fromEntity(category)!))
   }
 
   @Get('parent-options')
   @RequireResource(Resource.PRODUCTS_VIEW)
-  @ApiOperation({ summary: 'List categories eligible to be a parent (depth<3, no products, no variant options)' })
+  @ApiOperation({
+    summary: 'List categories eligible to be a parent (depth<3, no products, no variant options)',
+  })
   async parentOptions(
     @CurrentUser() user: JwtPayload,
     @Query('excludeId') excludeId?: string,
     @Query('search') search?: string,
   ): Promise<ProductCategory[]> {
-    const rows = await this.categoriesService.listParentOptions(user.businessId as string, { excludeId, search })
+    const rows = await this.categoriesService.listParentOptions(user.businessId as string, {
+      excludeId,
+      search,
+    })
     return rows.map((category) => serializeDto(CategoryDto.fromEntity(category)!))
   }
 
@@ -186,7 +196,12 @@ export class CategoriesController {
     @Param('groupId') groupId: string,
     @Body() dto: UpdateCategoryAttributeGroupDto,
   ): Promise<CategoryAttributeGroupNode[]> {
-    await this.attributeGroupsService.updateCategoryLink(id, groupId, user.businessId as string, dto)
+    await this.attributeGroupsService.updateCategoryLink(
+      id,
+      groupId,
+      user.businessId as string,
+      dto,
+    )
     return this.attributeGroupsService.listCategoryLinks(id, user.businessId as string)
   }
 

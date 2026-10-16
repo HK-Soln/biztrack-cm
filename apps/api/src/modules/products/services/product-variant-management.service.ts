@@ -1,4 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common'
+import {
+  findVariantComboClash,
+  findVariantSkuClash,
+  normalizeVariantSku,
+  planVariantRemoval,
+  stockChangeMovementType,
+} from '@biztrack/domain'
+import { removeVariant } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -31,8 +39,6 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
 import { ProductVariantsService } from './product-variants.service'
-
-const sig = (optionIds: string[]): string => [...optionIds].sort().join('|')
 
 /**
  * Granular, movement-based variant management (Phase 4). The variant SET is
@@ -102,14 +108,18 @@ export class ProductVariantManagementService {
         const links = await this.variantOptionsRepo.find({
           where: { variantId: In(existing.map((v) => v.id)), businessId, deletedAt: IsNull() },
         })
-        const sigsByVariant = new Map<string, string[]>()
+        const optionsByVariant = new Map<string, string[]>()
         for (const link of links) {
-          const list = sigsByVariant.get(link.variantId) ?? []
+          const list = optionsByVariant.get(link.variantId) ?? []
           list.push(link.attributeOptionId)
-          sigsByVariant.set(link.variantId, list)
+          optionsByVariant.set(link.variantId, list)
         }
-        const taken = new Set([...sigsByVariant.values()].map((ids) => sig(ids)))
-        if (taken.has(sig(dto.options!.map((o) => o.attributeOptionId)))) {
+        // The same combination as another variant (@biztrack/domain, as the till).
+        const clash = findVariantComboClash(
+          [...optionsByVariant].map(([id, optionIds]) => ({ id, optionIds })),
+          dto.options!.map((o) => o.attributeOptionId),
+        )
+        if (clash) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.variant_duplicate_combination'),
             'VARIANT_DUPLICATE_COMBINATION',
@@ -117,7 +127,7 @@ export class ProductVariantManagementService {
         }
       }
 
-      await this.assertSkuUnique(businessId, dto.sku?.trim() || null, null)
+      await this.assertSkuUnique(businessId, normalizeVariantSku(dto.sku), null)
 
       let name = dto.name?.trim()
       if (!name && hasOptions) {
@@ -141,7 +151,7 @@ export class ProductVariantManagementService {
             displayNameOverride: dto.name?.trim() ?? null,
             priceOverride: dto.priceOverride ?? null,
             costPriceOverride: dto.costPriceOverride ?? null,
-            sku: dto.sku?.trim() ?? null,
+            sku: normalizeVariantSku(dto.sku),
             isActive: dto.isActive ?? true,
             sortOrder: existing.length,
             description: dto.description?.trim() ?? null,
@@ -219,7 +229,7 @@ export class ProductVariantManagementService {
       const variant = await this.requireVariant(productId, variantId, businessId)
 
       if (dto.sku !== undefined) {
-        await this.assertSkuUnique(businessId, dto.sku?.trim() || null, variantId)
+        await this.assertSkuUnique(businessId, normalizeVariantSku(dto.sku), variantId)
       }
 
       const before = {
@@ -241,7 +251,7 @@ export class ProductVariantManagementService {
             dto.costPriceOverride === undefined
               ? variant.costPriceOverride
               : (dto.costPriceOverride ?? null),
-          sku: dto.sku === undefined ? variant.sku : (dto.sku?.trim() ?? null),
+          sku: dto.sku === undefined ? variant.sku : normalizeVariantSku(dto.sku),
           isActive: dto.isActive ?? variant.isActive,
           description:
             dto.description === undefined ? variant.description : (dto.description?.trim() ?? null),
@@ -306,10 +316,11 @@ export class ProductVariantManagementService {
     excludeVariantId: string | null,
   ): Promise<void> {
     if (!sku) return
-    const dup = await this.variantsRepo.findOne({
+    const holders = await this.variantsRepo.find({
+      select: { id: true, sku: true },
       where: { businessId, sku, deletedAt: IsNull() },
     })
-    if (dup && dup.id !== excludeVariantId) {
+    if (findVariantSkuClash([{ id: excludeVariantId, sku }], holders)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.variant_duplicate_sku', { args: { sku } }),
         'VARIANT_DUPLICATE_SKU',
@@ -327,56 +338,24 @@ export class ProductVariantManagementService {
     try {
       const product = await this.requireProduct(productId, businessId)
       const variant = await this.requireVariant(productId, variantId, businessId)
-      const reason = dto.reason.trim()
-
-      await this.dataSource.transaction(async (manager) => {
-        const before = await this.productStockTotal(
-          manager,
-          businessId,
-          productId,
-          product.isSerialized,
+      const plan = planVariantRemoval({ reason: dto.reason, stock: 0 })
+      if (!plan.ok) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.variant_remove_reason_required'),
+          plan.code,
         )
-        let writeOff = 0
+      }
+      const { reason } = plan
 
-        if (product.isSerialized) {
-          const serialRepo = manager.getRepository(ProductSerialUnit)
-          const units = await serialRepo.find({
-            where: { businessId, productId, variantId, status: SerialUnitStatus.IN_STOCK },
-          })
-          writeOff = units.length
-          for (const unit of units) {
-            await serialRepo.update(
-              { id: unit.id },
-              { status: SerialUnitStatus.DAMAGED, notes: reason },
-            )
-            await serialRepo.softDelete({ id: unit.id })
-          }
-        } else {
-          const invRepo = manager.getRepository(InventoryLevel)
-          const level = await invRepo.findOne({ where: { businessId, productId, variantId } })
-          writeOff = level?.quantity ?? 0
-          if (level) await invRepo.update({ id: level.id }, { quantity: 0 })
-        }
-
-        // Soft-delete the variant and its option links.
-        await manager.getRepository(ProductVariantOption).softDelete({ variantId, businessId })
-        await manager.getRepository(ProductVariant).softDelete({ id: variantId })
-
-        if (writeOff > 0) {
-          await this.writeMovement(manager, businessId, productId, -writeOff, before, {
-            referenceId: variantId,
-            notes: reason,
-            performedById: context.actorId ?? null,
-          })
-        }
-
-        const remaining = await manager
-          .getRepository(ProductVariant)
-          .count({ where: { productId, businessId, deletedAt: IsNull() } })
-        if (remaining === 0) {
-          await manager.getRepository(Product).update({ id: productId }, { hasVariants: false })
-        }
-      })
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
+      await this.dataSource.transaction((manager) =>
+        removeVariant(
+          manager,
+          { businessId, actorId: context.actorId ?? null, businessDate, at: new Date() },
+          { product, variantId, reason },
+        ),
+      )
 
       this.auditService.log(context, {
         action: 'DELETE',
@@ -427,8 +406,7 @@ export class ProductVariantManagementService {
   ): Promise<void> {
     const movementRepo = manager.getRepository(InventoryMovement)
     const hasHistory = (await movementRepo.count({ where: { businessId, productId } })) > 0
-    const type =
-      change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    const type = MovementType[stockChangeMovementType({ change, hasHistory })]
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
     await movementRepo.save(

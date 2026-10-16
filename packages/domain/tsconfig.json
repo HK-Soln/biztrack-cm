@@ -1,0 +1,13 @@
+{
+  "extends": "@biztrack/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // Pure domain: no DOM and no Node typings, so `window`, `fetch`, `process`, `Buffer`
+    // and friends fail to compile here instead of leaking a runtime dependency.
+    "lib": ["es2022"],
+    "types": []
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}

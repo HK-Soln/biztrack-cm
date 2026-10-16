@@ -80,7 +80,10 @@ const makeService = () => {
   const variantsRepo = { findOne: jest.fn() }
   const slugService = { generateProductSlug: jest.fn() }
   const skuService = { generate: jest.fn(), validateAndNormalize: jest.fn() }
-  const barcodeService = { generateFromSKU: jest.fn(), validateAndNormalize: jest.fn() }
+  const barcodeService = {
+    none: jest.fn(() => ({ value: null, type: null, isGenerated: false })),
+    validateAndNormalize: jest.fn(),
+  }
   const variantsService = {
     createVariantsFromAttributeSelections: jest.fn(),
     previewVariantMatrix: jest.fn(),
@@ -148,7 +151,6 @@ describe('ProductsService', () => {
       unitsRepo,
       slugService,
       skuService,
-      barcodeService,
       transactionProductRepo,
       transactionInventoryRepo,
       transactionMovementRepo,
@@ -158,11 +160,6 @@ describe('ProductsService', () => {
     unitsRepo.findOne.mockResolvedValue({ id: 'uom-1', businessId: null })
     slugService.generateProductSlug.mockResolvedValue('consultation-pack')
     skuService.generate.mockResolvedValue('GEN-ABC123')
-    barcodeService.generateFromSKU.mockReturnValue({
-      value: '2000000000001',
-      type: 'INTERNAL',
-      isGenerated: true,
-    })
 
     jest.spyOn(service, 'findById').mockResolvedValue({
       id: 'product-1',
@@ -170,9 +167,9 @@ describe('ProductsService', () => {
       name: 'Consultation Pack',
       slug: 'consultation-pack',
       sku: 'GEN-ABC123',
-      barcode: '2000000000001',
-      barcodeType: 'INTERNAL',
-      isBarcodeGenerated: true,
+      barcode: null,
+      barcodeType: null,
+      isBarcodeGenerated: false,
       sellingPrice: 12000,
       costPrice: null,
       currency: 'XAF',
@@ -212,6 +209,9 @@ describe('ProductsService', () => {
         productType: 'SERVICE',
         isService: true,
         trackInventory: false,
+        // Given no barcode, the product keeps none (ruling R17): none is made up.
+        barcode: null,
+        isBarcodeGenerated: false,
       }),
     )
     expect(transactionInventoryRepo.create).not.toHaveBeenCalled()
@@ -219,15 +219,8 @@ describe('ProductsService', () => {
   })
 
   it('rejects assigning a product to a non-leaf category', async () => {
-    const {
-      service,
-      businessesRepo,
-      unitsRepo,
-      categoriesRepo,
-      slugService,
-      skuService,
-      barcodeService,
-    } = makeService()
+    const { service, businessesRepo, unitsRepo, categoriesRepo, slugService, skuService } =
+      makeService()
 
     businessesRepo.findOne.mockResolvedValue({ id: 'business-1', currency: 'XAF' })
     unitsRepo.findOne.mockResolvedValue({ id: 'uom-1', businessId: null })
@@ -239,11 +232,6 @@ describe('ProductsService', () => {
     })
     slugService.generateProductSlug.mockResolvedValue('phone')
     skuService.generate.mockResolvedValue('GEN-1')
-    barcodeService.generateFromSKU.mockReturnValue({
-      value: '2000000000002',
-      type: 'INTERNAL',
-      isGenerated: true,
-    })
 
     await expect(
       service.create('business-1', 'user-1', {
