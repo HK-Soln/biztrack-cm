@@ -1,5 +1,6 @@
 import {
   bundleCanMake,
+  catalogValue,
   checkBundleComponents,
   checkProductKind,
   checkProductSku,
@@ -62,7 +63,6 @@ import {
   costExpr,
   priceExpr,
   displayPriceExpr,
-  round2,
   stockStatusExpr,
   stockStatusWhere,
   type ProductStats,
@@ -1065,16 +1065,14 @@ export class ProductsService {
           [businessId],
         )
       const r = rows[0] ?? {}
-      const catalogValueCost = round2(Number(r.catalogValueCost ?? 0))
-      const retailValue = round2(Number(r.retailValue ?? 0))
-      const blendedMarginPct =
-        retailValue > 0 ? round2(((retailValue - catalogValueCost) / retailValue) * 100) : 0
       return {
         totalSkus: Number(r.totalSkus ?? 0),
         categories: Number(r.categories ?? 0),
-        catalogValueCost,
-        retailValue,
-        blendedMarginPct,
+        // @biztrack/domain catalogValue, as the till.
+        ...catalogValue({
+          costValue: Number(r.catalogValueCost ?? 0),
+          retailValue: Number(r.retailValue ?? 0),
+        }),
         lowStock: Number(r.lowStock ?? 0),
         outOfStock: Number(r.outOfStock ?? 0),
       }

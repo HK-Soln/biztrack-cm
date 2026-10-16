@@ -184,7 +184,14 @@ Done so far (`inventory/stock-rules.ts`):
   sync path applies a variant's options one link at a time and does not check the
   combination.
 
-Still to do in this slice: the restock deltas; the stock reports; the server writes no movement for a serialized product's
+- Stock reports (`inventory/stock-reports.ts`): `inventoryTurnover`, `deadStock` (60
+  days), `supplierPriceTrend` (90 / 180 days), `annualiseFactor`, `daysSince` (clock passed
+  in), `catalogValue` and `roundReportAmount`. The server and the till only load the rows;
+  the two "kept verbatim in sync" copies are gone. The server rounded without the epsilon
+  the till used, and the till did not round its stock and catalog stats at all; both now
+  round the same way.
+
+Still to do in this slice: the restock deltas; the server writes no movement for a serialized product's
 sale or void (the till does);
 the variant check on a restock's serial units (neither the server's restock nor the
 till's add path checks it); which serial status changes a synced unit may make. The opening movements a variant product records still differ in

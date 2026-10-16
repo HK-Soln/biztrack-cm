@@ -1,5 +1,6 @@
 import {
   buildProductSku,
+  catalogValue,
   checkProductKind,
   checkProductPrices,
   checkProductSku,
@@ -453,9 +454,11 @@ export class ProductsService {
       [businessId],
     )
     if (!row) return empty
-    const blendedMarginPct =
-      row.retailValue > 0 ? ((row.retailValue - row.catalogValueCost) / row.retailValue) * 100 : 0
-    return { ...row, blendedMarginPct }
+    // @biztrack/domain catalogValue, as the server.
+    return {
+      ...row,
+      ...catalogValue({ costValue: row.catalogValueCost, retailValue: row.retailValue }),
+    }
   }
 
   create(input: ProductInput): LocalProduct {

@@ -5,10 +5,14 @@ import {
   checkStockAdjustmentTarget,
   computeReorderVelocity,
   computeStockoutMs,
+  deadStock,
   decideStockAdjustment,
+  inventoryTurnover,
   REORDER_WINDOW_DAYS,
+  roundReportAmount,
   settleRestock,
   suggestedReorderQuantity,
+  supplierPriceTrend,
   toWholeXaf,
   type StockAdjustmentRejection,
   type StockAdjustmentTargetRejection,
@@ -185,7 +189,13 @@ export class InventoryService {
        FROM products p WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1`,
       [businessId],
     )
-    return row ?? empty
+    if (!row) return empty
+    // Two decimals, as the server returns them (@biztrack/domain roundReportAmount).
+    return {
+      ...row,
+      unitsOnHand: roundReportAmount(row.unitsOnHand),
+      stockValueCost: roundReportAmount(row.stockValueCost),
+    }
   }
 
   /** Products at/below their reorder threshold, with a suggested restock qty.
@@ -1061,16 +1071,17 @@ export class InventoryService {
        GROUP BY si.product_id`,
       params,
     )
-    const cogsById = new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)]))
-    const factor = annualiseFactor(query.dateFrom, query.dateTo)
-    return stockRows
-      .map((r) => ({
+    // The report itself is @biztrack/domain's, as the other side builds it.
+    return inventoryTurnover({
+      stock: stockRows.map((r) => ({
         productId: r.productId,
         name: r.name,
-        avgStockCost: round2(Number(r.avgStockCost ?? 0)),
-        annualCogs: round2((cogsById.get(r.productId) ?? 0) * factor),
-      }))
-      .sort((a, b) => b.avgStockCost - a.avgStockCost)
+        stockCost: Number(r.avgStockCost ?? 0),
+      })),
+      cogsByProduct: new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)])),
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   /**
@@ -1100,19 +1111,18 @@ export class InventoryService {
        GROUP BY si.product_id`,
       [businessId],
     )
-    const lastById = new Map(lastRows.map((r) => [r.productId, r.lastSoldAt]))
-    const stockCostTotal = round2(stockRows.reduce((s, r) => s + Number(r.costValue ?? 0), 0))
-    const rows = stockRows
-      .map((r) => ({
+    // The report itself is @biztrack/domain's, as the other side builds it.
+    return deadStock({
+      stock: stockRows.map((r) => ({
         productId: r.productId,
         name: r.name,
         sku: r.sku ?? null,
         quantity: Number(r.qty ?? 0),
-        costValue: round2(Number(r.costValue ?? 0)),
-        daysSinceLastSale: daysSince(lastById.get(r.productId) ?? null),
-      }))
-      .filter((r) => r.daysSinceLastSale === null || r.daysSinceLastSale >= 60)
-    return { rows, stockCostTotal }
+        costValue: Number(r.costValue ?? 0),
+      })),
+      lastSoldAt: new Map(lastRows.map((r) => [r.productId, r.lastSoldAt])),
+      nowMs: Date.now(),
+    })
   }
 
   /**
@@ -1138,7 +1148,7 @@ export class InventoryService {
        ORDER BY rr.created_at ASC`,
       [businessId],
     )
-    return bucketSupplierPrices(rows)
+    return supplierPriceTrend(rows, Date.now())
   }
 
   // ---- internals -----------------------------------------------------------
@@ -1219,82 +1229,6 @@ function toInventoryItem(r: InventoryRow): LocalInventoryItem {
     stockValueCost: (r.cost_price ?? 0) * stock,
     lastRestockAt: r.last_restock_at,
   }
-}
-
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100
-}
-
-const MS_PER_DAY = 86400000
-
-// ── Report helpers — kept VERBATIM in sync with apps/api inventory.service.ts so the
-//    offline (SQLite) and online (API) turnover/dead-stock/supplier-price reports tie out. ──
-
-/** Annualise a period COGS by 365 / periodDays (inclusive). */
-function annualiseFactor(dateFrom?: string, dateTo?: string): number {
-  if (!dateFrom || !dateTo) return 1
-  const days = Math.max(
-    1,
-    Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1,
-  )
-  return 365 / days
-}
-
-/** Whole days between a last-sale timestamp and now; null when never sold. */
-function daysSince(ts: string | Date | null): number | null {
-  if (!ts) return null
-  const t = ts instanceof Date ? ts.getTime() : new Date(ts).getTime()
-  if (!Number.isFinite(t)) return null
-  return Math.max(0, Math.floor((Date.now() - t) / MS_PER_DAY))
-}
-
-/** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. */
-function bucketSupplierPrices(
-  rows: Array<{
-    productId: string
-    name: string
-    supplier: string | null
-    unitCost: string | number | null
-    createdAt: string | Date
-  }>,
-): SupplierPriceRow[] {
-  const now = Date.now()
-  const cut3 = now - 90 * MS_PER_DAY
-  const cut6 = now - 180 * MS_PER_DAY
-  const byProduct = new Map<
-    string,
-    { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }
-  >()
-  for (const r of rows) {
-    if (r.unitCost === null) continue
-    const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
-    const cost = Number(r.unitCost)
-    if (!Number.isFinite(t) || !Number.isFinite(cost)) continue
-    const g = byProduct.get(r.productId) ?? { name: r.name, supplier: r.supplier, entries: [] }
-    g.name = r.name
-    g.supplier = r.supplier // rows arrive ASC by created_at → last write is the latest supplier
-    g.entries.push({ cost, t })
-    byProduct.set(r.productId, g)
-  }
-  const pick = (entries: Array<{ cost: number; t: number }>, before: number): number | null => {
-    let best: { cost: number; t: number } | null = null
-    for (const e of entries) if (e.t <= before && (!best || e.t > best.t)) best = e
-    return best ? round2(best.cost) : null
-  }
-  const out: SupplierPriceRow[] = []
-  for (const [productId, g] of byProduct) {
-    const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
-    const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
-    out.push({
-      productId,
-      name: g.name,
-      supplier: g.supplier,
-      cost6mo: pick(sorted, cut6),
-      cost3mo: pick(sorted, cut3),
-      current,
-    })
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function normalizeThreshold(v: number | null): number | null {

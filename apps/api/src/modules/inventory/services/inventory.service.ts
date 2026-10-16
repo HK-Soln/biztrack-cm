@@ -29,12 +29,16 @@ import {
   checkStockAdjustmentTarget,
   computeReorderVelocity,
   computeStockoutMs,
+  deadStock,
   decideSerialAdd,
   decideStockAdjustment,
+  inventoryTurnover,
   REORDER_WINDOW_DAYS,
+  roundReportAmount,
   serialBatch,
   settleRestock,
   suggestedReorderQuantity,
+  supplierPriceTrend,
   toWholeXaf,
   type StockAdjustmentRejection,
   type StockAdjustmentTargetRejection,
@@ -77,7 +81,6 @@ import {
   reorderTargetExpr,
   stockStatusExpr,
   stockStatusWhere,
-  round2,
   type InventoryStats,
 } from '@/common/stats/stock-stats'
 
@@ -94,76 +97,6 @@ interface AlertRow {
   lowStockThreshold: number | null
   reorderPoint: number | null
   target: number
-}
-
-const MS_PER_DAY = 86400000
-
-/** Annualise a period COGS by 365 / periodDays (inclusive). Kept in sync with the desktop copy. */
-function annualiseFactor(dateFrom?: string, dateTo?: string): number {
-  if (!dateFrom || !dateTo) return 1
-  const days = Math.max(
-    1,
-    Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1,
-  )
-  return 365 / days
-}
-
-/** Whole days between a last-sale timestamp and now; null when never sold. Sync with desktop. */
-function daysSince(ts: string | Date | null): number | null {
-  if (!ts) return null
-  const t = ts instanceof Date ? ts.getTime() : new Date(ts).getTime()
-  if (!Number.isFinite(t)) return null
-  return Math.max(0, Math.floor((Date.now() - t) / MS_PER_DAY))
-}
-
-/** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. Sync with desktop. */
-function bucketSupplierPrices(
-  rows: Array<{
-    productId: string
-    name: string
-    supplier: string | null
-    unitCost: string | number | null
-    createdAt: string | Date
-  }>,
-): SupplierPriceRow[] {
-  const now = Date.now()
-  const cut3 = now - 90 * MS_PER_DAY
-  const cut6 = now - 180 * MS_PER_DAY
-  const byProduct = new Map<
-    string,
-    { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }
-  >()
-  for (const r of rows) {
-    if (r.unitCost === null) continue
-    const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
-    const cost = Number(r.unitCost)
-    if (!Number.isFinite(t) || !Number.isFinite(cost)) continue
-    const g = byProduct.get(r.productId) ?? { name: r.name, supplier: r.supplier, entries: [] }
-    g.name = r.name
-    g.supplier = r.supplier // rows arrive ASC by created_at → last write is the latest supplier
-    g.entries.push({ cost, t })
-    byProduct.set(r.productId, g)
-  }
-  // latest entry at or before `before`
-  const pick = (entries: Array<{ cost: number; t: number }>, before: number): number | null => {
-    let best: { cost: number; t: number } | null = null
-    for (const e of entries) if (e.t <= before && (!best || e.t > best.t)) best = e
-    return best ? round2(best.cost) : null
-  }
-  const out: SupplierPriceRow[] = []
-  for (const [productId, g] of byProduct) {
-    const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
-    const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
-    out.push({
-      productId,
-      name: g.name,
-      supplier: g.supplier,
-      cost6mo: pick(sorted, cut6),
-      cost3mo: pick(sorted, cut3),
-      current,
-    })
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 type SaleInventoryItemInput = {
@@ -389,8 +322,8 @@ export class InventoryService {
       const r = rows[0] ?? {}
       return {
         trackedSkus: Number(r.trackedSkus ?? 0),
-        unitsOnHand: round2(Number(r.unitsOnHand ?? 0)),
-        stockValueCost: round2(Number(r.stockValueCost ?? 0)),
+        unitsOnHand: roundReportAmount(Number(r.unitsOnHand ?? 0)),
+        stockValueCost: roundReportAmount(Number(r.stockValueCost ?? 0)),
         lowStock: Number(r.lowStock ?? 0),
         outOfStock: Number(r.outOfStock ?? 0),
       }
@@ -501,16 +434,17 @@ export class InventoryService {
         cogsParams,
       )) as Array<{ productId: string; cogs: string }>
 
-      const cogsById = new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)]))
-      const factor = annualiseFactor(query.dateFrom, query.dateTo)
-      return stockRows
-        .map((r) => ({
+      // The report itself is @biztrack/domain's, as the other side builds it.
+      return inventoryTurnover({
+        stock: stockRows.map((r) => ({
           productId: r.productId,
           name: r.name,
-          avgStockCost: round2(Number(r.avgStockCost ?? 0)),
-          annualCogs: round2((cogsById.get(r.productId) ?? 0) * factor),
-        }))
-        .sort((a, b) => b.avgStockCost - a.avgStockCost)
+          stockCost: Number(r.avgStockCost ?? 0),
+        })),
+        cogsByProduct: new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)])),
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+      })
     } catch (error) {
       return this.handleServiceError('getInventoryTurnover', error, { businessId })
     }
@@ -549,19 +483,18 @@ export class InventoryService {
         [businessId],
       )) as Array<{ productId: string; lastSoldAt: string | Date | null }>
 
-      const lastById = new Map(lastSaleRows.map((r) => [r.productId, r.lastSoldAt]))
-      const stockCostTotal = round2(stockRows.reduce((s, r) => s + Number(r.costValue ?? 0), 0))
-      const rows = stockRows
-        .map((r) => ({
+      // The report itself is @biztrack/domain's, as the other side builds it.
+      return deadStock({
+        stock: stockRows.map((r) => ({
           productId: r.productId,
           name: r.name,
           sku: r.sku ?? null,
           quantity: Number(r.qty ?? 0),
-          costValue: round2(Number(r.costValue ?? 0)),
-          daysSinceLastSale: daysSince(lastById.get(r.productId) ?? null),
-        }))
-        .filter((r) => r.daysSinceLastSale === null || r.daysSinceLastSale >= 60)
-      return { rows, stockCostTotal }
+          costValue: Number(r.costValue ?? 0),
+        })),
+        lastSoldAt: new Map(lastSaleRows.map((r) => [r.productId, r.lastSoldAt])),
+        nowMs: Date.now(),
+      })
     } catch (error) {
       return this.handleServiceError('getDeadStock', error, { businessId })
     }
@@ -590,7 +523,7 @@ export class InventoryService {
         unitCost: string | null
         createdAt: string | Date
       }>
-      return bucketSupplierPrices(rows)
+      return supplierPriceTrend(rows, Date.now())
     } catch (error) {
       return this.handleServiceError('getSupplierPriceTrend', error, { businessId })
     }

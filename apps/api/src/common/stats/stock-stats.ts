@@ -125,10 +125,6 @@ export function stockStatusWhere(status: 'in' | 'low' | 'out', a = 'p'): string 
   return `${stockStatusExpr(a)} = '${status.toUpperCase()}'`
 }
 
-export function round2(n: number): number {
-  return Math.round((Number.isFinite(n) ? n : 0) * 100) / 100
-}
-
 export interface ProductStats {
   totalSkus: number
   categories: number
