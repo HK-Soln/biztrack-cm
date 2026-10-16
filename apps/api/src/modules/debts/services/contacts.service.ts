@@ -1,11 +1,12 @@
 import {
   checkContactInput,
+  contactBalances,
   contactNameKey,
+  contactsSummary,
   findContactClashes,
   mergeContact,
   normalizeEmail,
   normalizePhone,
-  toWholeXaf,
 } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
@@ -131,32 +132,15 @@ export class ContactsService {
         businessId,
         contacts.map((c) => c.id),
       )
-      let totalReceivable = 0
-      let totalPayable = 0
-      let debtorCount = 0
-      let creditorCount = 0
-      let customerCount = 0
-      let supplierCount = 0
-      for (const c of contacts) {
-        const s = map.get(c.id)
-        const r = s?.totalReceivable ?? 0
-        const p = s?.totalPayable ?? 0
-        totalReceivable += r
-        totalPayable += p
-        if (r > 0) debtorCount += 1
-        if (p > 0) creditorCount += 1
-        if (c.type === ContactType.CUSTOMER || c.type === ContactType.BOTH) customerCount += 1
-        if (c.type === ContactType.SUPPLIER || c.type === ContactType.BOTH) supplierCount += 1
-      }
-      return {
-        totalReceivable: toWholeXaf(totalReceivable),
-        totalPayable: toWholeXaf(totalPayable),
-        allCount: contacts.length,
-        customerCount,
-        supplierCount,
-        debtorCount,
-        creditorCount,
-      }
+      // The header's balances and counts are @biztrack/domain's (contactsSummary), as the till.
+      return contactsSummary(
+        contacts.map((c) => ({
+          type: c.type,
+          isActive: true,
+          totalReceivable: map.get(c.id)?.totalReceivable ?? 0,
+          totalPayable: map.get(c.id)?.totalPayable ?? 0,
+        })),
+      )
     } catch (error) {
       return this.handleServiceError('summary', error, { businessId })
     }
@@ -461,30 +445,23 @@ export class ContactsService {
       })
     }
 
+    // Each contact's balance, open debts and oldest open debt are @biztrack/domain's
+    // (contactBalances), as the till.
+    const balances = contactBalances(
+      debts.map((debt) => ({
+        ...debt,
+        dueDate: debt.dueDate ?? null,
+        paidAmount: (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
+      })),
+    )
+    for (const [contactId, balance] of balances) {
+      const summary = result.get(contactId)
+      if (summary) Object.assign(summary, balance)
+    }
+
     for (const debt of debts) {
       const summary = result.get(debt.contactId)
       if (!summary) continue
-
-      const totalPaid = toWholeXaf(
-        (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
-      )
-      const rawOutstanding = toWholeXaf(Math.max(0, debt.originalAmount - totalPaid))
-
-      if (debt.status !== DebtStatus.WRITTEN_OFF) {
-        if (debt.direction === DebtDirection.RECEIVABLE) {
-          summary.totalReceivable = toWholeXaf(summary.totalReceivable + rawOutstanding)
-        } else {
-          summary.totalPayable = toWholeXaf(summary.totalPayable + rawOutstanding)
-        }
-      }
-
-      if ([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status)) {
-        summary.openDebts += 1
-        const created = toIsoString(debt.createdAt) ?? null
-        if (created && (!summary.oldestUnpaidAt || created < summary.oldestUnpaidAt)) {
-          summary.oldestUnpaidAt = created
-        }
-      }
 
       summary.lastTransactionDate = this.maxDate(
         summary.lastTransactionDate,

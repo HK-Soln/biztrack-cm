@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
+import { ContactsService } from '../services/contacts.service'
 import { DebtsService } from '../services/debts.service'
 
 // Netting what a contact owes against what is owed to them, on the till. The plan is
@@ -65,5 +66,42 @@ describe('debts on the till', () => {
     expect(() => pay(0)).toThrow('greater than 0')
     pay(3000)
     expect(standing('r-1')).toEqual({ status: 'SETTLED', paid: 3000 })
+  })
+
+  it('refuses a payment on a settled or written-off debt, or dated before the debt', () => {
+    debt('r-1', 'RECEIVABLE', 3000, '2026-08-01T00:00:00.000Z')
+    const pay = (paymentDate: string) =>
+      debts.recordPayment('r-1', { amount: 100, method: 'CASH', paymentDate } as never)
+    expect(() => pay('2026-07-31')).toThrow('dated before the debt')
+    db.run(`UPDATE debts SET status = 'WRITTEN_OFF' WHERE id = 'r-1'`)
+    expect(() => pay(NOW)).toThrow('settled or written off')
+    expect(debts.get('r-1')).toMatchObject({ outstandingAmount: 0 })
+  })
+
+  it('builds the statement, ageing and contacts header with the domain rules', () => {
+    debt('r-1', 'RECEIVABLE', 3000, '2026-08-01T09:00:00.000Z')
+    debt('p-1', 'PAYABLE', 1000, '2026-08-02T09:00:00.000Z')
+    debts.recordPayment('r-1', { amount: 500, method: 'CASH', paymentDate: '2026-08-05' } as never)
+
+    const statement = debts.statement('c-1', 'RECEIVABLE' as never)
+    expect(statement.entries.map((e) => [e.type, e.balance])).toEqual([
+      ['OPENING_BALANCE', 3000],
+      ['PAYMENT', 2500],
+    ])
+    expect(debts.getAgeing('RECEIVABLE' as never).totals).toMatchObject({
+      openingBalance: 2500,
+      totalOutstanding: 2500,
+    })
+    const contacts = new ContactsService(
+      db,
+      () => BIZ,
+      () => {},
+    )
+    expect(contacts.summary()).toMatchObject({
+      totalReceivable: 2500,
+      totalPayable: 1000,
+      debtorCount: 1,
+      creditorCount: 1,
+    })
   })
 })

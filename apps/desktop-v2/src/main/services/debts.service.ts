@@ -1,32 +1,20 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
+import { CashMovementKind, DEFAULT_CREDIT_DAYS, type DebtStatus } from '@biztrack/types'
 import {
-  CashMovementKind,
-  ContactStatementEntryType,
-  DEFAULT_CREDIT_DAYS,
-  type DebtStatus,
-} from '@biztrack/types'
-import {
+  buildAgeingReport,
+  buildContactStatement,
   checkDebtPayment,
-  daysPastDue,
   debtAfterChange,
   debtBalance,
   debtCanBeWrittenOff,
   debtSettledAt,
   debtStanding,
-  effectiveDueDate,
   openDebtSql,
   planDebtOffset,
   reduceDebt,
-  toWholeXaf,
 } from '@biztrack/domain'
-import type {
-  AgeingEntry,
-  AgeingReport,
-  ContactStatement,
-  ContactStatementEntry,
-  DebtDirection,
-} from '@biztrack/types'
+import type { AgeingReport, ContactStatement, DebtDirection } from '@biztrack/types'
 import type {
   DebtsQuery,
   LocalDebt,
@@ -602,11 +590,6 @@ export class DebtsService {
     )
     if (debts.length === 0) return base
 
-    // The opening balance is now an OPENING_BALANCE debt (pinned to the opening date so it sorts
-    // first); it renders as the opening entry and its payments flow like any other debt.
-    base.openingBalance =
-      debts.find((d) => d.source_type === 'OPENING_BALANCE')?.original_amount ?? 0
-
     const ids = debts.map((d) => d.id)
     const ph = ids.map(() => '?').join(',')
     const pays = this.db.query<{
@@ -617,76 +600,46 @@ export class DebtsService {
       payment_date: string | null
       created_at: string
     }>(
-      `SELECT debt_id, amount, method, mobile_money_reference, payment_date, created_at FROM debt_payments WHERE debt_id IN (${ph}) ORDER BY payment_date ASC, created_at ASC`,
+      `SELECT debt_id, amount, method, mobile_money_reference, payment_date, created_at FROM debt_payments WHERE debt_id IN (${ph})`,
       ids,
     )
+    const writtenOff = new Map(
+      this.db
+        .query<{
+          id: string
+          written_off_at: string | null
+        }>(`SELECT id, written_off_at FROM debts WHERE id IN (${ph})`, ids)
+        .map((r) => [r.id, r.written_off_at]),
+    )
 
-    const paidByDebt = new Map<string, number>()
-    for (const p of pays) paidByDebt.set(p.debt_id, (paidByDebt.get(p.debt_id) ?? 0) + p.amount)
-
-    type Ev =
-      | { date: string; kind: 'debt'; debt: DebtRow }
-      | { date: string; kind: 'pay'; pay: (typeof pays)[number] }
-      | { date: string; kind: 'woff'; amount: number }
-    const events: Ev[] = []
-    for (const d of debts) {
-      events.push({ date: d.created_at, kind: 'debt', debt: d })
-      if (d.status === 'WRITTEN_OFF') {
-        const remaining = Math.max(0, d.original_amount - (paidByDebt.get(d.id) ?? 0))
-        if (remaining > 0)
-          events.push({ date: d.settled_at || d.created_at, kind: 'woff', amount: remaining })
-      }
-    }
-    for (const p of pays) events.push({ date: p.payment_date || p.created_at, kind: 'pay', pay: p })
-    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-
-    let balance = 0
-    const entries: ContactStatementEntry[] = []
-    for (const e of events) {
-      if (e.kind === 'debt') {
-        const isOpening = e.debt.source_type === 'OPENING_BALANCE'
-        balance = toWholeXaf(balance + e.debt.original_amount)
-        entries.push({
-          date: e.debt.created_at,
-          type: isOpening
-            ? ContactStatementEntryType.OPENING_BALANCE
-            : ContactStatementEntryType.DEBT_CREATED,
-          direction,
-          reference: isOpening ? null : e.debt.source_reference,
-          description: isOpening ? 'Opening balance' : e.debt.source_type,
-          debit: e.debt.original_amount,
-          credit: 0,
-          balance,
-        })
-      } else if (e.kind === 'pay') {
-        balance = toWholeXaf(balance - e.pay.amount)
-        entries.push({
-          date: e.date,
-          type: ContactStatementEntryType.PAYMENT,
-          direction,
-          reference: e.pay.method,
-          description: e.pay.mobile_money_reference ?? '',
-          debit: 0,
-          credit: e.pay.amount,
-          balance,
-        })
-      } else {
-        balance = toWholeXaf(balance - e.amount)
-        entries.push({
-          date: e.date,
-          type: ContactStatementEntryType.WRITE_OFF,
-          direction,
-          reference: null,
-          description: '',
-          debit: 0,
-          credit: e.amount,
-          balance,
-        })
-      }
-    }
-    base.entries = entries
-    base.closingBalance = balance
-    return base
+    // The statement and its running balance are @biztrack/domain's (buildContactStatement),
+    // as on the server. The opening balance is an OPENING_BALANCE debt dated to the opening day.
+    const statement = buildContactStatement({
+      direction,
+      debts: debts.map((d) => ({
+        contactId: d.contact_id,
+        direction: d.direction as DebtDirection,
+        sourceType: d.source_type as 'SALE',
+        sourceReference: d.source_reference,
+        originalAmount: d.original_amount,
+        paidAmount: d.paid_amount ?? 0,
+        status: d.status as DebtStatus,
+        dueDate: d.due_date,
+        createdAt: d.created_at,
+        settledAt: d.settled_at,
+        writtenOffAt: writtenOff.get(d.id) ?? null,
+        payments: pays
+          .filter((p) => p.debt_id === d.id)
+          .map((p) => ({
+            amount: p.amount,
+            method: p.method,
+            mobileMoneyReference: p.mobile_money_reference,
+            paymentDate: (p.payment_date || p.created_at).slice(0, 10),
+            createdAt: p.created_at,
+          })),
+      })),
+    })
+    return { ...base, ...statement }
   }
 
   /**
@@ -717,107 +670,46 @@ export class DebtsService {
     // Opening balances are now OPENING_BALANCE debts, so they come back in this scan — kept in
     // their own column (not aged), never double-counted against a separate opening-balance table.
     const debts = this.db.query<{
-      id: string
       contact_id: string
       source_type: string
       original_amount: number
+      status: string
       created_at: string
       due_date: string | null
       paid_amount: number
     }>(
-      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, d.due_date, ${PAID} AS paid_amount
-       FROM debts d WHERE d.business_id = ? AND d.direction = ? AND d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`,
+      `SELECT d.contact_id, d.source_type, d.original_amount, d.status, d.created_at, d.due_date, ${PAID} AS paid_amount
+       FROM debts d WHERE d.business_id = ? AND d.direction = ? AND ${openDebtSql('d.status')}`,
       [businessId, direction],
     )
-
-    interface Bucket {
-      openingBalance: number
-      current: number
-      moderate: number
-      aged: number
-      overdue: number
-      pastDue: number
-      total: number
-    }
-    const buckets = new Map<string, Bucket>()
-
-    for (const d of debts) {
-      const paid = toWholeXaf(d.paid_amount ?? 0)
-      const outstanding = toWholeXaf(Math.max(0, d.original_amount - paid))
-      if (outstanding <= 0) continue
-      const b = buckets.get(d.contact_id) ?? {
-        openingBalance: 0,
-        current: 0,
-        moderate: 0,
-        aged: 0,
-        overdue: 0,
-        pastDue: 0,
-        total: 0,
-      }
-      if (d.source_type === 'OPENING_BALANCE') {
-        b.openingBalance = toWholeXaf(b.openingBalance + outstanding)
-      } else {
-        const due = effectiveDueDate(
-          { dueDate: d.due_date, createdAt: d.created_at },
-          DEFAULT_CREDIT_DAYS,
-        )
-        const overdueDays = daysPastDue(due, now)
-        if (overdueDays <= 7) b.current = toWholeXaf(b.current + outstanding)
-        else if (overdueDays <= 15) b.moderate = toWholeXaf(b.moderate + outstanding)
-        else if (overdueDays <= 30) b.aged = toWholeXaf(b.aged + outstanding)
-        else b.overdue = toWholeXaf(b.overdue + outstanding)
-        if (overdueDays > 0) b.pastDue = toWholeXaf(b.pastDue + outstanding)
-        b.total = toWholeXaf(b.total + outstanding)
-      }
-      buckets.set(d.contact_id, b)
-    }
-
-    const contactIds = [...buckets.keys()]
-    const contactInfo = new Map<string, { name: string; phone: string | null }>()
+    const contactIds = [...new Set(debts.map((d) => d.contact_id))]
+    const contacts = new Map<string, { name: string; phone: string | null }>()
     if (contactIds.length > 0) {
       const ph = contactIds.map(() => '?').join(',')
       const rows = this.db.query<{ id: string; name: string; phone: string | null }>(
         `SELECT id, name, phone FROM contacts WHERE business_id = ? AND id IN (${ph})`,
         [businessId, ...contactIds],
       )
-      for (const r of rows) contactInfo.set(r.id, { name: r.name, phone: r.phone })
+      for (const r of rows) contacts.set(r.id, { name: r.name, phone: r.phone })
     }
 
-    const entries: AgeingEntry[] = contactIds
-      .filter((id) => contactInfo.has(id)) // skip debts whose contact row is missing (mirrors API `if (!debt.contact) continue`)
-      .map((id) => {
-        const b = buckets.get(id)!
-        const info = contactInfo.get(id)!
-        return {
-          contactId: id,
-          contactName: info.name,
-          contactPhone: info.phone,
-          openingBalance: b.openingBalance,
-          current: b.current,
-          moderate: b.moderate,
-          aged: b.aged,
-          overdue: b.overdue,
-          pastDue: b.pastDue,
-          totalOutstanding: toWholeXaf(b.openingBalance + b.total),
-        }
-      })
-
-    entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
-
-    const totals = entries.reduce(
-      (acc, e) => ({
-        openingBalance: toWholeXaf(acc.openingBalance + e.openingBalance),
-        current: toWholeXaf(acc.current + e.current),
-        moderate: toWholeXaf(acc.moderate + e.moderate),
-        aged: toWholeXaf(acc.aged + e.aged),
-        overdue: toWholeXaf(acc.overdue + e.overdue),
-        pastDue: toWholeXaf(acc.pastDue + e.pastDue),
-        totalOutstanding: toWholeXaf(acc.totalOutstanding + e.totalOutstanding),
-      }),
-      { ...emptyTotals },
-    )
-
-    return { direction, asOf: today, entries, totals }
+    // The buckets, totals and order are @biztrack/domain's (buildAgeingReport), as the server.
+    return buildAgeingReport({
+      direction,
+      creditDays: DEFAULT_CREDIT_DAYS,
+      now,
+      contacts,
+      debts: debts.map((d) => ({
+        contactId: d.contact_id,
+        direction,
+        sourceType: d.source_type as 'SALE',
+        originalAmount: d.original_amount,
+        paidAmount: d.paid_amount ?? 0,
+        status: d.status as DebtStatus,
+        dueDate: d.due_date,
+        createdAt: d.created_at,
+      })),
+    })
   }
 
   // ---- internals -----------------------------------------------------------

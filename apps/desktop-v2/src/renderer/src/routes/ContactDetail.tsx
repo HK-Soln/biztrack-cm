@@ -1,3 +1,4 @@
+import { contactAgeBand, contactNet, daysUnpaid } from '@biztrack/domain'
 import { useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -95,15 +96,13 @@ export function ContactDetail() {
     )
 
   const typeLabel = isBoth ? t('ct.bothLong') : isSupplier ? t('ct.supplier') : t('ct.customer')
-  const net = contact.totalReceivable - contact.totalPayable
+  const net = contactNet(contact)
 
   const since = new Date(contact.createdAt).toLocaleDateString(undefined, {
     month: 'short',
     year: 'numeric',
   })
-  const oldestDays = contact.oldestUnpaidAt
-    ? Math.max(0, Math.floor((Date.now() - new Date(contact.oldestUnpaidAt).getTime()) / 86400000))
-    : null
+  const oldestDays = contact.oldestUnpaidAt ? daysUnpaid(contact.oldestUnpaidAt, Date.now()) : null
   const metaItem = (icon: ReactNode, value: string) => (
     <span className="mi">
       {icon}
@@ -459,7 +458,9 @@ export function ContactDetail() {
           </div>
           <div className="mc">
             <div className="l">{t('ct.mOldest')}</div>
-            <div className={`v ${oldestDays != null && oldestDays > 30 ? 'warn' : ''}`}>
+            <div
+              className={`v ${oldestDays != null && contactAgeBand(oldestDays) > 0 ? 'warn' : ''}`}
+            >
               {oldestDays != null ? t('ct.mOldestDays').replace('{n}', String(oldestDays)) : '—'}
             </div>
             <div className="s">{t('ct.mOldestSub')}</div>

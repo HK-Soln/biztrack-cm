@@ -7,7 +7,6 @@ import {
   DebtDirection,
   DebtSource,
   DebtStatus,
-  ContactStatementEntryType,
   NotificationType,
   PaymentMethod,
   clampCreditDays,
@@ -20,6 +19,7 @@ import {
   type JwtPayload,
 } from '@biztrack/types'
 import {
+  buildContactStatement,
   checkDebtPayment,
   checkDebtWriteOff,
   debtAfterChange,
@@ -31,6 +31,7 @@ import {
   planDebtOffset,
   reduceDebt,
   sourceDebtPayment,
+  summarizeDebts,
   toWholeXaf,
 } from '@biztrack/domain'
 import { APP_ROUTES } from '@biztrack/utils'
@@ -172,60 +173,16 @@ export class DebtsService {
         where: { businessId, direction },
       })
       const paidAmounts = await this.loadPaidAmounts(debts.map((debt) => debt.id))
-      const monthStart = new Date()
-      monthStart.setUTCDate(1)
-      monthStart.setUTCHours(0, 0, 0, 0)
-      const monthEnd = new Date(
-        Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1),
-      )
-
-      let totalOutstanding = 0
-      let outstandingDebtCount = 0
-      let partiallyPaidDebtCount = 0
-      let partiallyPaidOutstanding = 0
-      let settledThisMonthCount = 0
-      let settledThisMonthAmount = 0
-
-      for (const debt of debts) {
-        const paidAmount = paidAmounts.get(debt.id) ?? 0
-        const rawOutstanding = debtStanding({
-          originalAmount: debt.originalAmount,
-          paidAmount,
-        }).unpaidAmount
-
-        if (
-          [DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status) &&
-          rawOutstanding > 0
-        ) {
-          totalOutstanding = toWholeXaf(totalOutstanding + rawOutstanding)
-          outstandingDebtCount += 1
-        }
-
-        if (debt.status === DebtStatus.PARTIALLY_PAID && rawOutstanding > 0) {
-          partiallyPaidDebtCount += 1
-          partiallyPaidOutstanding = toWholeXaf(partiallyPaidOutstanding + rawOutstanding)
-        }
-
-        if (
-          debt.status === DebtStatus.SETTLED &&
-          debt.settledAt &&
-          debt.settledAt >= monthStart &&
-          debt.settledAt < monthEnd
-        ) {
-          settledThisMonthCount += 1
-          settledThisMonthAmount = toWholeXaf(settledThisMonthAmount + debt.originalAmount)
-        }
-      }
-
-      return {
+      // The summary is @biztrack/domain's (summarizeDebts).
+      return summarizeDebts({
         direction,
-        totalOutstanding,
-        outstandingDebtCount,
-        partiallyPaidDebtCount,
-        partiallyPaidOutstanding,
-        settledThisMonthCount,
-        settledThisMonthAmount,
-      }
+        now: new Date(),
+        debts: debts.map((debt) => ({
+          ...debt,
+          paidAmount: paidAmounts.get(debt.id) ?? 0,
+          dueDate: debt.dueDate ?? null,
+        })),
+      })
     } catch (error) {
       return this.handleServiceError('getSummary', error, { businessId, direction })
     }
@@ -682,97 +639,16 @@ export class DebtsService {
         .addOrderBy('payment.payment_date', 'ASC')
         .getMany()
 
-      // The opening balance is now an OPENING_BALANCE debt (pinned to the opening date so it
-      // sorts first); it renders as the opening entry and its payments flow like any other debt.
-      const openingBalance = debts.find((debt) => debt.sourceType === DebtSource.OPENING_BALANCE)
-
-      const events: Array<{
-        sortAt: number
-        date: string
-        type: ContactStatementEntryType
-        reference: string | null
-        description: string
-        debit: number
-        credit: number
-      }> = []
-
-      for (const debt of debts) {
-        const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
-        events.push({
-          sortAt: debt.createdAt.getTime(),
-          date: this.toDateOnly(debt.createdAt),
-          type: isOpening
-            ? ContactStatementEntryType.OPENING_BALANCE
-            : ContactStatementEntryType.DEBT_CREATED,
-          reference: isOpening ? null : (debt.sourceReference ?? null),
-          description: isOpening
-            ? 'Opening balance'
-            : debt.sourceType === DebtSource.SALE
-              ? 'Sale on credit'
-              : 'Restock on credit',
-          debit: debt.originalAmount,
-          credit: 0,
-        })
-
-        const sortedPayments = [...(debt.payments ?? [])].sort((a, b) => {
-          const dateCompare = a.paymentDate.localeCompare(b.paymentDate)
-          if (dateCompare !== 0) return dateCompare
-          return a.createdAt.getTime() - b.createdAt.getTime()
-        })
-
-        for (const payment of sortedPayments) {
-          events.push({
-            sortAt: Date.parse(`${payment.paymentDate}T12:00:00.000Z`),
-            date: payment.paymentDate,
-            type: ContactStatementEntryType.PAYMENT,
-            // The method enum goes in `reference` (the renderer localizes it via debt.method_*);
-            // the momo reference goes in `description`. Mirrors the desktop statement so both
-            // platforms produce an identical, localizable ledger.
-            reference: payment.method,
-            description: payment.mobileMoneyReference ?? '',
-            debit: 0,
-            credit: payment.amount,
-          })
-        }
-
-        if (debt.status === DebtStatus.WRITTEN_OFF && debt.writtenOffAt) {
-          const totalPaid = toWholeXaf(
-            (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
-          )
-          const remaining = debtBalance({
-            originalAmount: debt.originalAmount,
-            paidAmount: totalPaid,
-            status: debt.status,
-          }).unpaidAmount
-          if (remaining > 0) {
-            events.push({
-              sortAt: debt.writtenOffAt.getTime(),
-              date: this.toDateOnly(debt.writtenOffAt),
-              type: ContactStatementEntryType.WRITE_OFF,
-              reference: debt.sourceReference ?? null,
-              description: 'Debt written off',
-              debit: 0,
-              credit: remaining,
-            })
-          }
-        }
-      }
-
-      events.sort((left, right) => left.sortAt - right.sortAt)
-
-      let balance = 0
-      const entries = events.map((event) => {
-        balance = toWholeXaf(balance + event.debit - event.credit)
-        return {
-          date: event.date,
-          type: event.type,
-          direction,
-          reference: event.reference,
-          description: event.description,
-          debit: event.debit,
-          credit: event.credit,
-          balance,
-        }
+      // The statement and its running balance are @biztrack/domain's (buildContactStatement),
+      // as on the till. The opening balance is an OPENING_BALANCE debt dated to the opening day.
+      const statement = buildContactStatement({
+        direction,
+        debts: debts.map((debt) => ({
+          ...debt,
+          dueDate: debt.dueDate ?? null,
+          paidAmount: (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
+          payments: debt.payments ?? [],
+        })),
       })
 
       return {
@@ -782,9 +658,7 @@ export class DebtsService {
           phone: contact.phone ?? null,
         },
         direction,
-        openingBalance: openingBalance?.originalAmount ?? 0,
-        entries,
-        closingBalance: balance,
+        ...statement,
       }
     } catch (error) {
       return this.handleServiceError('buildContactStatement', error, {

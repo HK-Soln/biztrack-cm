@@ -7,7 +7,6 @@ import {
   DebtSource,
   DebtStatus,
   clampCreditDays,
-  type AgeingEntry,
   type AgeingReport,
   type ContactNetPosition,
   type ContactOpeningBalance,
@@ -15,10 +14,11 @@ import {
   type UpsertOpeningBalanceRequest,
 } from '@biztrack/types'
 import {
-  daysPastDue,
+  buildAgeingReport,
+  contactNetPosition,
   debtSettledAt,
   debtStanding,
-  effectiveDueDate,
+  OPEN_DEBT_STATUSES,
   toWholeXaf,
 } from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
@@ -226,52 +226,20 @@ export class OpeningBalancesService {
         relations: ['payments'],
       })
 
-      let receivableOb = 0
-      let payableOb = 0
-      let receivableDebts = 0
-      let receivablePaid = 0
-      let payableDebts = 0
-      let payablePaid = 0
-
-      for (const debt of debts) {
-        if (debt.status === DebtStatus.WRITTEN_OFF) continue
-        const paid = toWholeXaf((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-        const outstanding = toWholeXaf(Math.max(0, debt.originalAmount - paid))
-        const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
-
-        if (debt.direction === DebtDirection.RECEIVABLE) {
-          if (isOpening) receivableOb = toWholeXaf(receivableOb + outstanding)
-          else receivableDebts = toWholeXaf(receivableDebts + outstanding)
-          receivablePaid = toWholeXaf(receivablePaid + paid)
-        } else {
-          if (isOpening) payableOb = toWholeXaf(payableOb + outstanding)
-          else payableDebts = toWholeXaf(payableDebts + outstanding)
-          payablePaid = toWholeXaf(payablePaid + paid)
-        }
-      }
-
-      const receivableNet = toWholeXaf(receivableOb + receivableDebts)
-      const payableNet = toWholeXaf(payableOb + payableDebts)
-
+      // The net position is @biztrack/domain's (contactNetPosition).
       return {
         contact: {
           id: contact.id,
           name: contact.name,
           phone: contact.phone ?? null,
         },
-        receivable: {
-          openingBalance: receivableOb,
-          totalDebts: receivableDebts,
-          totalPaid: receivablePaid,
-          netBalance: receivableNet,
-        },
-        payable: {
-          openingBalance: payableOb,
-          totalDebts: payableDebts,
-          totalPaid: payablePaid,
-          netBalance: payableNet,
-        },
-        net: toWholeXaf(receivableNet - payableNet),
+        ...contactNetPosition(
+          debts.map((debt) => ({
+            ...debt,
+            dueDate: debt.dueDate ?? null,
+            paidAmount: (debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
+          })),
+        ),
       }
     } catch (error) {
       return this.handleServiceError('getNetPosition', error, { contactId, businessId })
@@ -281,7 +249,6 @@ export class OpeningBalancesService {
   async getAgeingReport(businessId: string, direction: DebtDirection): Promise<AgeingReport> {
     try {
       const now = new Date()
-      const today = now.toISOString().slice(0, 10)
 
       // D9: bucket every debt off its EFFECTIVE due date — the explicit due_date, or
       // created_at + the business's default credit period when none was set.
@@ -292,106 +259,31 @@ export class OpeningBalancesService {
       const creditDays = clampCreditDays(business?.defaultCreditDays)
 
       const debts = await this.debtsRepo.find({
-        where: {
-          businessId,
-          direction,
-          status: In([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID]),
-        },
+        where: { businessId, direction, status: In([...OPEN_DEBT_STATUSES]) },
         relations: ['contact', 'payments'],
       })
 
-      const contactMap = new Map<
-        string,
-        {
-          contact: Contact
-          openingBalance: number
-          current: number
-          moderate: number
-          aged: number
-          overdue: number
-          pastDue: number
-          total: number
-        }
-      >()
-
+      // The buckets, totals and order are @biztrack/domain's (buildAgeingReport), as the till.
+      const contacts = new Map<string, { name: string; phone: string | null }>()
       for (const debt of debts) {
-        if (!debt.contact) continue
-        const paid = toWholeXaf((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-        const outstanding = toWholeXaf(Math.max(0, debt.originalAmount - paid))
-        if (outstanding <= 0) continue
-
-        const entry = contactMap.get(debt.contactId) ?? {
-          contact: debt.contact,
-          openingBalance: 0,
-          current: 0,
-          moderate: 0,
-          aged: 0,
-          overdue: 0,
-          pastDue: 0,
-          total: 0,
+        if (debt.contact) {
+          contacts.set(debt.contactId, {
+            name: debt.contact.name,
+            phone: debt.contact.phone ?? null,
+          })
         }
-
-        // The opening balance keeps its own column (not aged); every other debt is
-        // bucketed by how far past its effective due date it is (7/15/30 boundaries).
-        if (debt.sourceType === DebtSource.OPENING_BALANCE) {
-          entry.openingBalance = toWholeXaf(entry.openingBalance + outstanding)
-        } else {
-          const due = effectiveDueDate(debt, creditDays)
-          const overdueDays = daysPastDue(due, now)
-          if (overdueDays <= 7) {
-            entry.current = toWholeXaf(entry.current + outstanding)
-          } else if (overdueDays <= 15) {
-            entry.moderate = toWholeXaf(entry.moderate + outstanding)
-          } else if (overdueDays <= 30) {
-            entry.aged = toWholeXaf(entry.aged + outstanding)
-          } else {
-            entry.overdue = toWholeXaf(entry.overdue + outstanding)
-          }
-          if (overdueDays > 0) {
-            entry.pastDue = toWholeXaf(entry.pastDue + outstanding)
-          }
-          entry.total = toWholeXaf(entry.total + outstanding)
-        }
-        contactMap.set(debt.contactId, entry)
       }
-
-      const entries: AgeingEntry[] = [...contactMap.values()].map((e) => ({
-        contactId: e.contact.id,
-        contactName: e.contact.name,
-        contactPhone: e.contact.phone ?? null,
-        openingBalance: e.openingBalance,
-        current: e.current,
-        moderate: e.moderate,
-        aged: e.aged,
-        overdue: e.overdue,
-        pastDue: e.pastDue,
-        totalOutstanding: toWholeXaf(e.openingBalance + e.total),
-      }))
-
-      entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
-
-      const totals = entries.reduce(
-        (acc, e) => ({
-          openingBalance: toWholeXaf(acc.openingBalance + e.openingBalance),
-          current: toWholeXaf(acc.current + e.current),
-          moderate: toWholeXaf(acc.moderate + e.moderate),
-          aged: toWholeXaf(acc.aged + e.aged),
-          overdue: toWholeXaf(acc.overdue + e.overdue),
-          pastDue: toWholeXaf(acc.pastDue + e.pastDue),
-          totalOutstanding: toWholeXaf(acc.totalOutstanding + e.totalOutstanding),
-        }),
-        {
-          openingBalance: 0,
-          current: 0,
-          moderate: 0,
-          aged: 0,
-          overdue: 0,
-          pastDue: 0,
-          totalOutstanding: 0,
-        },
-      )
-
-      return { direction, asOf: today, entries, totals }
+      return buildAgeingReport({
+        direction,
+        creditDays,
+        now,
+        contacts,
+        debts: debts.map((debt) => ({
+          ...debt,
+          dueDate: debt.dueDate ?? null,
+          paidAmount: (debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
+        })),
+      })
     } catch (error) {
       return this.handleServiceError('getAgeingReport', error, { businessId, direction })
     }
