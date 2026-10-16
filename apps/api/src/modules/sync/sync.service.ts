@@ -61,6 +61,9 @@ import type {
   JwtPayload,
 } from '@biztrack/types'
 import {
+  checkContactArchive,
+  checkContactInput,
+  checkOpeningBalance,
   checkProductKind,
   checkProductSku,
   checkStockAdjustmentTarget,
@@ -76,8 +79,10 @@ import {
   findVariantSkuClash,
   newProductStockLevel,
   newVariantStockLevel,
+  normalizeEmail,
   normalizePhone,
   normalizeVariantSku,
+  openDebtSql,
   productKindToStore,
   serialStockChange,
   slugify,
@@ -2839,7 +2844,14 @@ export class SyncService {
 
     if (operation.action === 'DELETE') {
       if (existing) {
-        if (existing.isActive && (await this.contactHasOpenDebts(businessId, existing.id))) {
+        // One with open debts cannot be archived (@biztrack/domain checkContactArchive).
+        if (
+          checkContactArchive({
+            wasActive: existing.isActive,
+            isActive: false,
+            hasOpenDebts: await this.contactHasOpenDebts(businessId, existing.id),
+          })
+        ) {
           throw new AppBadRequestException(
             'This contact has open balances and cannot be archived.',
             'CONTACT_HAS_OPEN_DEBTS',
@@ -2855,10 +2867,19 @@ export class SyncService {
     }
 
     const payload = this.readContactPayload(operation.payload)
-    const normalizedName = payload.name?.trim() || ''
-    if (!normalizedName) {
-      throw new AppBadRequestException('Contact name is required.', 'CONTACT_NAME_REQUIRED')
+    // A name, valid phones and email (@biztrack/domain checkContactInput, as the till did).
+    const problem = checkContactInput(payload)
+    if (problem) {
+      throw new AppBadRequestException(
+        {
+          CONTACT_NAME_REQUIRED: 'Contact name is required.',
+          CONTACT_PHONE_INVALID: 'A phone number of this contact is not valid.',
+          CONTACT_EMAIL_INVALID: 'The email of this contact is not valid.',
+        }[problem],
+        problem,
+      )
     }
+    const normalizedName = payload.name!.trim()
     // The name is unique in the business, as on the server's own path and the till (R12,
     // R16). A phone or email shared with another contact is accepted: the till already asked
     // the person and they chose to create it anyway.
@@ -2874,9 +2895,8 @@ export class SyncService {
         { contactId: nameTaken.id, name: nameTaken.name },
       )
     }
-    // Phones in international form; one an older till sent in another form is kept as sent.
-    const contactPhone = (value?: string | null) =>
-      normalizePhone(value) ?? this.normalizeOptionalString(value)
+    // Phones in international form (checked valid above).
+    const contactPhone = (value?: string | null) => normalizePhone(value)
 
     const createdById = await this.resolveContactCreatedById(businessId, payload.createdById)
 
@@ -2890,11 +2910,13 @@ export class SyncService {
       if (reactivatesQuotaConsumer) {
         await this.quotaService.assertWithinQuota(businessId, 'contacts')
       }
-      // A contact who still owes or is owed cannot be archived, as on the server's own path.
+      // A contact who still owes or is owed cannot be archived (@biztrack/domain).
       if (
-        existing.isActive &&
-        !nextIsActive &&
-        (await this.contactHasOpenDebts(businessId, existing.id))
+        checkContactArchive({
+          wasActive: existing.isActive,
+          isActive: nextIsActive,
+          hasOpenDebts: await this.contactHasOpenDebts(businessId, existing.id),
+        })
       ) {
         throw new AppBadRequestException(
           'This contact has open balances and cannot be archived.',
@@ -2908,7 +2930,7 @@ export class SyncService {
         nameKey: contactNameKey(normalizedName),
         phone: contactPhone(payload.phone),
         phoneAlt: contactPhone(payload.phoneAlt),
-        email: this.normalizeOptionalString(payload.email),
+        email: normalizeEmail(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
         idType: payload.idType ?? null,
@@ -2936,7 +2958,7 @@ export class SyncService {
         name: normalizedName,
         phone: contactPhone(payload.phone),
         phoneAlt: contactPhone(payload.phoneAlt),
-        email: this.normalizeOptionalString(payload.email),
+        email: normalizeEmail(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
         idType: payload.idType ?? null,
@@ -2958,7 +2980,7 @@ export class SyncService {
   private async contactHasOpenDebts(businessId: string, contactId: string): Promise<boolean> {
     const [row] = (await this.dataSource.query(
       `SELECT 1 FROM debts WHERE business_id = $1 AND contact_id = $2
-          AND status IN ('OUTSTANDING', 'PARTIALLY_PAID') LIMIT 1`,
+          AND ${openDebtSql('status')} LIMIT 1`,
       [businessId, contactId],
     )) as unknown[]
     return !!row
@@ -3201,23 +3223,45 @@ export class SyncService {
     if (operation.action === 'DELETE') {
       if (existing) {
         await this.openingBalancesRepo.delete(existing.id)
+        // Its mirrored debt goes with it, as on the server's own path (payments cascade).
+        await this.dataSource.getRepository(Debt).delete({
+          businessId,
+          sourceType: DebtSource.OPENING_BALANCE,
+          sourceId: existing.contactId,
+          direction: existing.direction,
+        })
       }
       return { status: 'applied' }
     }
 
     const contact = await this.contactsRepo.findOne({
       where: { id: payload.contactId, businessId },
-      select: ['id', 'businessId'],
+      select: ['id', 'businessId', 'type'],
     })
 
     if (!contact) {
       return { status: 'failed', errorMessage: 'Opening balance contact could not be resolved.' }
     }
 
-    const amount = this.normalizeMoney(payload.amount)
-    if (amount <= 0) {
-      return { status: 'failed', errorMessage: 'Opening balance amount must be greater than zero.' }
+    // Amount, date and direction: @biztrack/domain checkOpeningBalance, as REST and the till.
+    const checked = checkOpeningBalance({
+      amount: Number(payload.amount),
+      direction: payload.direction as DebtDirection,
+      contactType: contact.type as ContactType,
+      asOfDate: payload.asOfDate,
+    })
+    if (!checked.ok) {
+      return {
+        status: 'failed',
+        errorMessage: {
+          OPENING_BALANCE_AMOUNT_INVALID: 'Opening balance amount must be greater than zero.',
+          OPENING_BALANCE_DIRECTION_INVALID:
+            'This contact type cannot have an opening balance in this direction.',
+          OPENING_BALANCE_DATE_INVALID: 'Opening balance date must be in YYYY-MM-DD format.',
+        }[checked.code],
+      }
     }
+    const { amount } = checked
 
     if (existing) {
       await this.openingBalancesRepo.update(existing.id, {

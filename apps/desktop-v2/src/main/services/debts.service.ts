@@ -9,7 +9,6 @@ import {
   debtBalance,
   debtCanBeWrittenOff,
   debtSettledAt,
-  debtStanding,
   openDebtSql,
   planDebtOffset,
   reduceDebt,
@@ -251,22 +250,23 @@ export class DebtsService {
     )
 
     if (existing) {
-      if (existing.status === 'WRITTEN_OFF') return existing.id
       const paid =
         this.db.get<{ p: number }>(
           `SELECT COALESCE(SUM(amount), 0) AS p FROM debt_payments WHERE debt_id = ?`,
           [existing.id],
         )?.p ?? 0
-      const standing = debtStanding({ originalAmount: input.amount, paidAmount: paid })
+      // Where the debt now stands (@biztrack/domain debtAfterChange, as the server); a
+      // written-off one stays written off with its new amount.
+      const next = debtAfterChange({
+        originalAmount: input.amount,
+        paidAmount: paid,
+        status: existing.status as DebtStatus,
+        settledAt: existing.settled_at,
+        at: now,
+      })
       this.db.run(
         `UPDATE debts SET original_amount = ?, status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
-        [
-          input.amount,
-          standing.status,
-          debtSettledAt(standing, existing.settled_at, now),
-          existing.id,
-          businessId,
-        ],
+        [input.amount, next.status, next.settledAt, existing.id, businessId],
       )
       this.enqueue(existing.id, businessId, now)
       this.onMutated()

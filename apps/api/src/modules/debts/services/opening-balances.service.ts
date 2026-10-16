@@ -15,9 +15,9 @@ import {
 } from '@biztrack/types'
 import {
   buildAgeingReport,
+  checkOpeningBalance,
   contactNetPosition,
-  debtSettledAt,
-  debtStanding,
+  debtAfterChange,
   OPEN_DEBT_STATUSES,
   toWholeXaf,
 } from '@biztrack/domain'
@@ -37,8 +37,6 @@ import { Debt } from '@/entities/debt.entity'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
-
-const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * Every opening balance is mirrored as a `debt` row (sourceType=OPENING_BALANCE) so it can be
@@ -75,16 +73,29 @@ export class OpeningBalancesService {
   ): Promise<ContactOpeningBalance> {
     try {
       const contact = await this.requireContact(contactId, businessId)
-      this.assertDirectionCompatibleWithType(contact.type as ContactType, dto.direction)
-      this.assertDateOnly(dto.asOfDate)
-
-      const amount = toWholeXaf(dto.amount)
-      if (amount <= 0) {
+      // Amount, date and direction: @biztrack/domain checkOpeningBalance, as sync and the till.
+      const checked = checkOpeningBalance({
+        amount: dto.amount,
+        direction: dto.direction,
+        contactType: contact.type as ContactType,
+        asOfDate: dto.asOfDate,
+      })
+      if (!checked.ok) {
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.opening_balance_amount_invalid' as never),
-          'OPENING_BALANCE_AMOUNT_INVALID',
+          {
+            OPENING_BALANCE_AMOUNT_INVALID: await this.i18n.translate(
+              'errors.opening_balance_amount_invalid' as never,
+            ),
+            OPENING_BALANCE_DIRECTION_INVALID:
+              contact.type === ContactType.SUPPLIER
+                ? 'Supplier contacts can only have payable opening balances'
+                : 'Customer contacts can only have receivable opening balances',
+            OPENING_BALANCE_DATE_INVALID: 'Opening balance date must be in YYYY-MM-DD format',
+          }[checked.code],
+          checked.code,
         )
       }
+      const { amount } = checked
 
       const existing = await this.openingBalancesRepo.findOne({
         where: { businessId, contactId, direction: dto.direction },
@@ -183,15 +194,18 @@ export class OpeningBalancesService {
     })
 
     if (existing) {
-      const standing = debtStanding({
+      // Where the debt now stands (@biztrack/domain debtAfterChange, as the till).
+      const next = debtAfterChange({
         originalAmount: amount,
         paidAmount: (existing.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
-        writtenOff: existing.status === DebtStatus.WRITTEN_OFF,
+        status: existing.status,
+        settledAt: existing.settledAt,
+        at: new Date(),
       })
       existing.originalAmount = amount
       existing.sourceReference = OPENING_BALANCE_DEBT_REFERENCE
-      existing.status = standing.status
-      existing.settledAt = debtSettledAt(standing, existing.settledAt, new Date())
+      existing.status = next.status
+      existing.settledAt = next.settledAt
       await this.debtsRepo.save(existing)
       return
     }
@@ -347,30 +361,6 @@ export class OpeningBalancesService {
       )
     }
     return contact
-  }
-
-  private assertDirectionCompatibleWithType(type: ContactType, direction: DebtDirection) {
-    if (direction === DebtDirection.RECEIVABLE && type === ContactType.SUPPLIER) {
-      throw new AppBadRequestException(
-        'Supplier contacts can only have payable opening balances',
-        'OPENING_BALANCE_DIRECTION_INVALID',
-      )
-    }
-    if (direction === DebtDirection.PAYABLE && type === ContactType.CUSTOMER) {
-      throw new AppBadRequestException(
-        'Customer contacts can only have receivable opening balances',
-        'OPENING_BALANCE_DIRECTION_INVALID',
-      )
-    }
-  }
-
-  private assertDateOnly(value: string) {
-    if (!DATE_ONLY_REGEX.test(value)) {
-      throw new AppBadRequestException(
-        'Opening balance date must be in YYYY-MM-DD format',
-        'OPENING_BALANCE_DATE_INVALID',
-      )
-    }
   }
 
   private daysBetween(createdAt: Date, now: Date): number {

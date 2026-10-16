@@ -102,6 +102,7 @@
   "expense_category_system_immutable": "Les categories de depense systeme ne peuvent pas etre modifiees ou supprimees.",
   "contact_not_found": "Contact introuvable.",
   "contact_phone_invalid": "Saisissez un numero principal valide pour ce contact.",
+  "contact_email_invalid": "Saisissez une adresse e-mail valide, ou laissez le champ vide.",
   "contact_duplicate": "Un autre contact a déjà ce numéro de téléphone ou cet e-mail.",
   "contact_name_taken": "Un autre contact porte déjà ce nom.",
   "contact_name_required": "Le nom du contact est obligatoire.",

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { ContactType } from '@biztrack/types'
 import { slugify } from '../text/slug'
 import {
+  checkContactArchive,
   checkContactInput,
+  isValidEmail,
   contactNameKey,
   findContactClashes,
   mergeContact,
@@ -90,5 +92,25 @@ describe('mergeContact', () => {
   })
   it('lower-cases emails for comparison', () => {
     expect(normalizeEmail('  A@B.CM ')).toBe('a@b.cm')
+  })
+})
+
+describe('contact email and archiving', () => {
+  it('refuses an email not written as one', () => {
+    expect(isValidEmail('kemi@shop.cm')).toBe(true)
+    expect(isValidEmail('kemi@shop')).toBe(false)
+    expect(checkContactInput({ name: 'Kemi', email: 'kemi at shop' })).toBe('CONTACT_EMAIL_INVALID')
+    expect(checkContactInput({ name: 'Kemi', email: ' ' })).toBeNull()
+  })
+  it('keeps a contact with open debts from being archived', () => {
+    expect(checkContactArchive({ wasActive: true, isActive: false, hasOpenDebts: true })).toBe(
+      'CONTACT_HAS_OPEN_DEBTS',
+    )
+    expect(
+      checkContactArchive({ wasActive: true, isActive: false, hasOpenDebts: false }),
+    ).toBeNull()
+    expect(
+      checkContactArchive({ wasActive: false, isActive: false, hasOpenDebts: true }),
+    ).toBeNull()
   })
 })

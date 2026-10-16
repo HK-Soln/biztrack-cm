@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
+import type { ContactType } from '@biztrack/types'
+import { checkOpeningBalance } from '@biztrack/domain'
 import type { LocalOpeningBalance, OpeningBalanceInput } from '../../shared/ipc'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
@@ -47,12 +49,33 @@ export class OpeningBalancesService {
   upsert(input: OpeningBalanceInput): LocalOpeningBalance {
     const businessId = this.requireBusinessId()
     if (!input.contactId?.trim()) throw new Error('Contact is required.')
-    const amount = Number(input.amount)
-    if (!Number.isFinite(amount) || amount <= 0)
-      throw new Error('Opening balance must be greater than 0.')
+    const contact = this.db.get<{ type: string }>(
+      `SELECT type FROM contacts WHERE id = ? AND business_id = ?`,
+      [input.contactId, businessId],
+    )
+    if (!contact) throw new Error('Contact not found.')
 
     const now = new Date().toISOString()
     const asOfDate = input.asOfDate?.trim() || now.slice(0, 10)
+    // Amount in whole francs, date and direction: @biztrack/domain, as on the server.
+    const checked = checkOpeningBalance({
+      amount: Number(input.amount),
+      direction: input.direction,
+      contactType: contact.type as ContactType,
+      asOfDate,
+    })
+    if (!checked.ok)
+      throw new Error(
+        {
+          OPENING_BALANCE_AMOUNT_INVALID: 'Opening balance must be greater than 0.',
+          OPENING_BALANCE_DIRECTION_INVALID:
+            contact.type === 'SUPPLIER'
+              ? 'A supplier can only have a payable opening balance.'
+              : 'A customer can only have a receivable opening balance.',
+          OPENING_BALANCE_DATE_INVALID: 'The opening balance date is not valid.',
+        }[checked.code],
+      )
+    const { amount } = checked
     const recordedById = this.getActorId()
     const existing = this.db.get<{ id: string; created_at: string }>(
       `SELECT id, created_at FROM contact_opening_balances WHERE business_id = ? AND contact_id = ? AND direction = ?`,

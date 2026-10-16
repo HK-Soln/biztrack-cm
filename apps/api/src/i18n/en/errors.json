@@ -102,6 +102,7 @@
   "expense_category_system_immutable": "System expense categories cannot be modified or deleted.",
   "contact_not_found": "Contact not found.",
   "contact_phone_invalid": "Enter a valid phone number, or leave it empty.",
+  "contact_email_invalid": "Enter a valid email address, or leave it empty.",
   "contact_duplicate": "Another contact already has this phone number or email.",
   "contact_name_taken": "Another contact already has this name.",
   "contact_name_required": "A contact name is required.",

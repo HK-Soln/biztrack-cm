@@ -38,19 +38,45 @@ export function normalizeEmail(raw: string | null | undefined): string | null {
   return value ? value : null
 }
 
-export type ContactInputRejection = 'CONTACT_NAME_REQUIRED' | 'CONTACT_PHONE_INVALID'
+export type ContactInputRejection =
+  | 'CONTACT_NAME_REQUIRED'
+  | 'CONTACT_PHONE_INVALID'
+  | 'CONTACT_EMAIL_INVALID'
 
-/** A contact as entered: a name, and phone numbers that are valid when given. */
+/** Whether an email address is written as one: something@domain.tld, no spaces. */
+export function isValidEmail(raw: string | null | undefined): boolean {
+  const value = raw?.trim()
+  return !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+/**
+ * A contact as entered: a name, phone numbers that are valid when given, and an email
+ * written as one when given.
+ */
 export function checkContactInput(input: {
   name?: string | null
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
 }): ContactInputRejection | null {
   if (!input.name?.trim() || !contactNameKey(input.name)) return 'CONTACT_NAME_REQUIRED'
   for (const phone of [input.phone, input.phoneAlt]) {
     if (phone?.trim() && !normalizePhone(phone)) return 'CONTACT_PHONE_INVALID'
   }
+  if (input.email?.trim() && !isValidEmail(input.email)) return 'CONTACT_EMAIL_INVALID'
   return null
+}
+
+/**
+ * Archiving a contact: one who still owes or is owed (an open debt) cannot be archived.
+ * Only checked when the contact goes from active to archived.
+ */
+export function checkContactArchive(input: {
+  wasActive: boolean
+  isActive: boolean
+  hasOpenDebts: boolean
+}): 'CONTACT_HAS_OPEN_DEBTS' | null {
+  return input.wasActive && !input.isActive && input.hasOpenDebts ? 'CONTACT_HAS_OPEN_DEBTS' : null
 }
 
 export interface ExistingContact {

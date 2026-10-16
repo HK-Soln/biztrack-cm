@@ -3,6 +3,7 @@ import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
 import { ContactsService } from '../services/contacts.service'
 import { DebtsService } from '../services/debts.service'
+import { OpeningBalancesService } from '../services/opening-balances.service'
 
 // Netting what a contact owes against what is owed to them, on the till. The plan is
 // @biztrack/domain's `planDebtOffset`; the payment check is `checkDebtPayment`.
@@ -103,5 +104,44 @@ describe('debts on the till', () => {
       debtorCount: 1,
       creditorCount: 1,
     })
+  })
+
+  it('checks an opening balance and mirrors it as a debt in whole francs', () => {
+    db.run(
+      `INSERT INTO contacts (id, business_id, type, name, is_active, created_at, updated_at)
+       VALUES ('s-1', ?, 'SUPPLIER', 'Supplier', 1, ?, ?)`,
+      [BIZ, NOW, NOW],
+    )
+    const balances = new OpeningBalancesService(
+      db,
+      () => BIZ,
+      () => {},
+      () => 'u-1',
+      undefined,
+      debts,
+    )
+    expect(() =>
+      balances.upsert({ contactId: 's-1', direction: 'RECEIVABLE', amount: 100 } as never),
+    ).toThrow('payable opening balance')
+    balances.upsert({
+      contactId: 'c-1',
+      direction: 'RECEIVABLE',
+      amount: 1500.4,
+      asOfDate: '2026-01-01',
+    } as never)
+    const row = db.get<{ original_amount: number }>(
+      `SELECT original_amount FROM debts WHERE source_type = 'OPENING_BALANCE' AND source_id = 'c-1'`,
+    )
+    expect(row?.original_amount).toBe(1500)
+  })
+
+  it('keeps a contact with open debts from being archived', () => {
+    debt('r-1', 'RECEIVABLE', 3000, NOW)
+    const contacts = new ContactsService(
+      db,
+      () => BIZ,
+      () => {},
+    )
+    expect(() => contacts.remove('c-1')).toThrow('open debts')
   })
 })

@@ -1,4 +1,5 @@
 import {
+  checkContactArchive,
   checkContactInput,
   contactNameKey,
   contactsSummary,
@@ -279,7 +280,12 @@ export class ContactsService {
     if (!before) throw new Error('Contact not found.')
     const type = input.type ?? (before.type as CreateContactRequest['type'])
     const name = (input.name ?? before.name).trim()
-    this.assertContactInput({ name, phone: input.phone, phoneAlt: input.phoneAlt })
+    this.assertContactInput({
+      name,
+      phone: input.phone,
+      phoneAlt: input.phoneAlt,
+      email: input.email,
+    })
     if (contactNameKey(name) !== contactNameKey(before.name)) {
       const { nameTaken } = findContactClashes(
         { name, selfId: id },
@@ -365,10 +371,18 @@ export class ContactsService {
     const before = this.getOne(id)
     if (!before) throw new Error('Contact not found.')
     const open = this.db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM debts WHERE business_id = ? AND contact_id = ? AND status IN ('OUTSTANDING','PARTIALLY_PAID')`,
+      `SELECT COUNT(*) AS n FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND ${OPEN}`,
       [businessId, id],
     )
-    if ((open?.n ?? 0) > 0) throw new Error('This contact has open debts and cannot be removed.')
+    // One with open debts cannot be archived (@biztrack/domain, as the server).
+    if (
+      checkContactArchive({
+        wasActive: before.isActive,
+        isActive: false,
+        hasOpenDebts: (open?.n ?? 0) > 0,
+      })
+    )
+      throw new Error('This contact has open debts and cannot be removed.')
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE contacts SET is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
@@ -428,11 +442,14 @@ export class ContactsService {
     name?: string | null
     phone?: string | null
     phoneAlt?: string | null
+    email?: string | null
   }): void {
     const problem = checkContactInput(input)
     if (problem === 'CONTACT_NAME_REQUIRED') throw new Error('A contact name is required.')
     if (problem === 'CONTACT_PHONE_INVALID')
       throw new Error('Enter a valid phone number, or leave it empty.')
+    if (problem === 'CONTACT_EMAIL_INVALID')
+      throw new Error('Enter a valid email address, or leave it empty.')
   }
 
   /** Every contact of the business, archived ones too: names stay unique across all. */

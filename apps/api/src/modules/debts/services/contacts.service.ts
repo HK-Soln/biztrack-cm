@@ -1,4 +1,5 @@
 import {
+  checkContactArchive,
   checkContactInput,
   contactBalances,
   contactNameKey,
@@ -7,6 +8,7 @@ import {
   mergeContact,
   normalizeEmail,
   normalizePhone,
+  OPEN_DEBT_STATUSES,
 } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
@@ -14,7 +16,6 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   ContactType,
   DebtDirection,
-  DebtStatus,
   type ContactDetail,
   type ContactListItem,
   type ContactListResult,
@@ -304,6 +305,7 @@ export class ContactsService {
         name: nextName,
         phone: dto.phone,
         phoneAlt: dto.phoneAlt,
+        email: dto.email,
       })
       if (contactNameKey(nextName) !== contact.nameKey) {
         await this.assertNameFree(businessId, nextName, contact.id)
@@ -369,14 +371,17 @@ export class ContactsService {
       }
 
       const blockingDebtCount = await this.debtsRepo.count({
-        where: {
-          businessId,
-          contactId: id,
-          status: In([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID]),
-        },
+        where: { businessId, contactId: id, status: In([...OPEN_DEBT_STATUSES]) },
       })
 
-      if (blockingDebtCount > 0) {
+      // One with open debts cannot be archived (@biztrack/domain, as sync and the till).
+      if (
+        checkContactArchive({
+          wasActive: contact.isActive,
+          isActive: false,
+          hasOpenDebts: blockingDebtCount > 0,
+        })
+      ) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.contact_has_open_debts' as never),
           'CONTACT_HAS_OPEN_DEBTS',
@@ -544,25 +549,21 @@ export class ContactsService {
     return trimmed ? trimmed : null
   }
 
-  /** A name, and valid phones when given (@biztrack/domain checkContactInput). */
+  /** A name, valid phones and email when given (@biztrack/domain checkContactInput). */
   private async assertContactInput(input: {
     name?: string | null
     phone?: string | null
     phoneAlt?: string | null
+    email?: string | null
   }): Promise<void> {
     const problem = checkContactInput(input)
-    if (problem === 'CONTACT_NAME_REQUIRED') {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.contact_name_required' as never),
-        'CONTACT_NAME_REQUIRED',
-      )
-    }
-    if (problem === 'CONTACT_PHONE_INVALID') {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.contact_phone_invalid' as never),
-        'CONTACT_PHONE_INVALID',
-      )
-    }
+    if (!problem) return
+    const key = {
+      CONTACT_NAME_REQUIRED: 'errors.contact_name_required',
+      CONTACT_PHONE_INVALID: 'errors.contact_phone_invalid',
+      CONTACT_EMAIL_INVALID: 'errors.contact_email_invalid',
+    }[problem]
+    throw new AppBadRequestException(await this.i18n.translate(key as never), problem)
   }
 
   /** The name is free in the business (R16); `selfId` is the contact being saved, if any. */

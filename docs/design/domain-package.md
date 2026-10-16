@@ -215,22 +215,48 @@ Still to do in this slice:
 
 ### 10. Debts and contacts
 
-- Outstanding = original − paid, recomputed in about seven API places and on the till,
-  instead of `debtStanding`; a written-off debt shown as owing nothing done inline.
-- Ageing buckets (7 / 15 / 30 days) and past due, on the API and the till; the contacts
-  list uses different buckets (30 / 60). The debt summary (open, partly paid, settled this
-  month), the account statement's running balance, the net position, a contact's balance
-  summary.
-- Paying a debt: a sale payment caps silently at what is owed while a direct payment is
-  refused; on sync, `totalPaid` is summed with no `checkDebtPayment` (an overpayment is
-  accepted) and `settledAt` is decided inline although `debtSettledAt` exists.
-- A contact with open debts cannot be archived (API, till, sync); "open debt" is SQL in
-  each.
-- Opening balances by sync: no mirrored debt and no removal of it **(drift)**; the amount
-  check is inline; the till does not round the amount.
-- Contact sync: the name and email checks and the phone check are inline; an invalid phone
-  is kept as typed, where the server's path refuses it **(drift)**.
-- A payment on a contact balance is spread oldest first inline (payment links).
+As built (2026-10-16):
+
+- Where a debt stands: `debtStanding` now gives a written-off debt nothing owed and keeps
+  what the write-off cancelled as `unpaidAmount`; `debtBalance` reads "written off" from the
+  stored status; `debtAfterChange` gives the status and first settlement date after a
+  change (a written-off debt stays written off). `OPEN_DEBT_STATUSES`, `debtIsOpen`,
+  `openDebtSql` and `debtOutstandingSql` are the one definition of an open debt and of what
+  is still owed, in code and in SQL. The API's private outstanding helper, the till's
+  `toLocalDebt` (which showed a written-off debt as still owing) and the till's contact
+  balance SQL (which could go negative and was not rounded) use them.
+- Paying a debt: `checkDebtPayment` also refuses a settled or written-off debt
+  (`DEBT_PAYMENT_LOCKED`) and a payment dated before the debt, on the server and now on the
+  till; an invalid amount gets its own message on the API. `sourceDebtPayment` decides what
+  money collected on a sale's balance goes to its debt. `checkDebtWriteOff` for a write-off
+  by hand. `allocatePaymentOldestFirst` spreads a contact balance payment link; that link
+  no longer takes written-off debts.
+- Sync: `checkSyncedDebt` refuses a debt whose payments add up to more than it is for, or
+  hold a payment of nothing (`failed`); the first settlement date is kept
+  (`debtAfterChange`). A contact is checked with `checkContactInput`: an invalid phone or
+  email is refused where it used to be kept as sent, and emails are lower case. An opening
+  balance is checked with `checkOpeningBalance` (amount in whole francs, date, and the
+  direction the contact's type allows), and deleting one removes its mirrored debt, as REST.
+- Reports (`credit/debt-reports.ts`): `buildAgeingReport`, `summarizeDebts`,
+  `buildContactStatement`, `contactBalances`, `contactsSummary`, `contactNetPosition`,
+  `contactNet`, `daysUnpaid` and `contactAgeBand`. The server and the till build the ageing
+  report, statement and contacts header with them; the till's header now counts active
+  contacts only, as the server, and its statement dates a write-off when it was written off.
+  The contacts screens take the 30/60-day bands and the net from the domain.
+- Contacts: `isValidEmail` and `checkContactInput` (email) for the server, the till and the
+  contact form; `checkContactArchive` for REST, sync and the till.
+- The till's opening balance is rounded to whole francs and checked for direction; a
+  written-off opening-balance debt takes a new amount and stays written off on both sides.
+
+Still to do in this slice:
+
+- The till has no business credit period (settings are not synced), so its ageing report
+  uses the default for debts without a due date.
+- The debt sync applier deletes payments the till's copy no longer has; the server's own
+  path never deletes a payment (it records a reversal).
+- The amount check of a sale payment (`SalesService.recordPayment`) moves with slice 12.
+- A till on an older build with a contact whose phone is not valid now gets that contact
+  refused on sync; it needs the number corrected on the till.
 
 ### 11. Cash
 
