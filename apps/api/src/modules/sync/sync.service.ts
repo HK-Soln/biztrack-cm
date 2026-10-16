@@ -63,17 +63,23 @@ import type {
 import {
   checkProductKind,
   checkProductSku,
+  checkStockAdjustmentTarget,
   checkUnitEditable,
   checkUnitRemoval,
   contactNameKey,
   debtStanding,
+  decideStockAdjustment,
   decideUnit,
   findContactClashes,
   findVariantSkuClash,
+  newProductStockLevel,
+  newVariantStockLevel,
   normalizePhone,
   normalizeVariantSku,
   productKindToStore,
   slugify,
+  stockChangeMovementType,
+  stockLevelOnEdit,
   toWholeXaf,
   validateSerialNumber,
 } from '@biztrack/domain'
@@ -93,7 +99,6 @@ import {
   RfqSupplierStatus,
   SerialType,
   SerialUnitStatus,
-  StockAdjustmentType,
   UnitOfMeasureType,
   NotificationType,
 } from '@biztrack/types'
@@ -2421,8 +2426,7 @@ export class SyncService {
     if (change === 0) return
     const hasHistory =
       (await this.inventoryMovementsRepo.count({ where: { businessId, productId } })) > 0
-    const type =
-      change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    const type = MovementType[stockChangeMovementType({ change, hasHistory })]
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, createdAt)
     await this.inventoryMovementsRepo.save(
@@ -2540,12 +2544,20 @@ export class SyncService {
     )
     // Seed the variant's inventory level from opening stock (non-serialised products).
     const parentProduct = await this.productsRepo.findOne({ where: { id: productId, businessId } })
-    if (parentProduct && !parentProduct.isSerialized && parentProduct.trackInventory) {
+    // The level a new variant starts with (@biztrack/domain newVariantStockLevel).
+    const newLevel = parentProduct
+      ? newVariantStockLevel({
+          trackInventory: parentProduct.trackInventory,
+          isSerialized: parentProduct.isSerialized,
+          openingStock: payload.openingStock,
+        })
+      : null
+    if (newLevel) {
       const level = await this.inventoryLevelsRepo.findOne({
         where: { businessId, productId, variantId: operation.recordId },
       })
       if (!level) {
-        const openingStock = Math.max(payload.openingStock ?? 0, 0)
+        const openingStock = newLevel.quantity
         await this.inventoryLevelsRepo.save(
           this.inventoryLevelsRepo.create({
             businessId,
@@ -3520,7 +3532,9 @@ export class SyncService {
           where: { businessId, productId: operation.recordId },
         })
 
-        if (trackInventory && !inventoryLevel) {
+        // What the edit does to the product's own level (@biztrack/domain stockLevelOnEdit).
+        const levelChange = stockLevelOnEdit({ trackInventory, hasLevel: inventoryLevel != null })
+        if (levelChange === 'CREATE') {
           await inventoryRepo.save(
             inventoryRepo.create({
               businessId,
@@ -3529,14 +3543,14 @@ export class SyncService {
               lowStockThreshold: payload.lowStockThreshold ?? null,
             }),
           )
-        } else if (trackInventory && inventoryLevel) {
+        } else if (levelChange === 'KEEP' && inventoryLevel) {
           await inventoryRepo.update(inventoryLevel.id, {
             lowStockThreshold:
               payload.lowStockThreshold === undefined
                 ? inventoryLevel.lowStockThreshold
                 : payload.lowStockThreshold,
           })
-        } else if (!trackInventory && inventoryLevel) {
+        } else if (levelChange === 'REMOVE' && inventoryLevel) {
           await inventoryRepo.delete({ id: inventoryLevel.id })
         }
       })
@@ -3544,9 +3558,21 @@ export class SyncService {
       return { status: 'applied' }
     }
 
-    const openingStock = trackInventory
-      ? Math.max(payload.currentStock ?? payload.openingStock ?? 0, 0)
-      : 0
+    // The level a new product starts with (@biztrack/domain newProductStockLevel): a
+    // serialized product's level holds its thresholds at 0, its stock is its units.
+    const newLevel = newProductStockLevel({
+      trackInventory,
+      isSerialized: kind.isSerialized,
+      openingStock: payload.currentStock ?? payload.openingStock,
+    })
+    const openingStock = newLevel?.quantity ?? 0
+    const openingBusinessDate =
+      openingStock > 0
+        ? await this.calendar.computeForBusiness(
+            businessId,
+            this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          )
+        : null
 
     if (payload.isActive ?? true) {
       await this.quotaService.assertWithinQuota(businessId, 'products')
@@ -3595,7 +3621,7 @@ export class SyncService {
         }),
       )
 
-      if (trackInventory) {
+      if (newLevel) {
         await manager.getRepository(InventoryLevel).save(
           manager.getRepository(InventoryLevel).create({
             businessId,
@@ -3619,6 +3645,7 @@ export class SyncService {
               referenceId: operation.recordId,
               notes: 'Opening stock set during sync',
               performedById: payload.createdById ?? null,
+              businessDate: openingBusinessDate,
             }),
           )
         }
@@ -3703,11 +3730,24 @@ export class SyncService {
       return { status: 'applied' }
     }
 
+    const variantId = payload.variantId ?? null
+    // The level this adjustment may change (@biztrack/domain); variant rows, not the flag.
+    const target = checkStockAdjustmentTarget({
+      trackInventory: product.trackInventory,
+      isSerialized: product.isSerialized,
+      hasVariants: await this.productVariantsRepo.exists({
+        where: { businessId, productId: payload.productId, deletedAt: IsNull() },
+      }),
+      variantId,
+    })
+    if (target) {
+      return { status: 'failed', errorMessage: `Stock adjustment refused: ${target}.` }
+    }
+
     return this.dataSource.transaction(async (manager) => {
       const inventoryRepo = manager.getRepository(InventoryLevel)
       const movementRepo = manager.getRepository(InventoryMovement)
 
-      const variantId = payload.variantId ?? null
       const level =
         (await inventoryRepo.findOne({
           where: { businessId, productId: payload.productId, variantId: variantId ?? IsNull() },
@@ -3723,17 +3763,24 @@ export class SyncService {
           }),
         ))
 
-      const quantityBefore = Number(level.quantity)
-      const quantityAfter = this.calculateAdjustmentQuantity(quantityBefore, payload)
-
-      if (quantityAfter < 0) {
-        return {
-          status: 'conflict',
-          resolution: 'server_wins',
-          errorMessage:
-            'Inventory quantity changed on another device. Unable to apply this adjustment.',
-        }
+      // The same decision the till made (@biztrack/domain), on the server's level.
+      const decision = decideStockAdjustment({
+        current: Number(level.quantity),
+        type: payload.type,
+        quantity: payload.quantity,
+        notes: payload.notes,
+      })
+      if (!decision.ok) {
+        return decision.code === 'INVENTORY_INSUFFICIENT_STOCK'
+          ? {
+              status: 'conflict',
+              resolution: 'server_wins',
+              errorMessage:
+                'Inventory quantity changed on another device. Unable to apply this adjustment.',
+            }
+          : { status: 'failed', errorMessage: `Stock adjustment refused: ${decision.code}.` }
       }
+      const { before: quantityBefore, after: quantityAfter } = decision
 
       await inventoryRepo.update(level.id, {
         quantity: quantityAfter,
@@ -3755,12 +3802,12 @@ export class SyncService {
           productId: payload.productId,
           variantId,
           type: MovementType.MANUAL_ADJUSTMENT,
-          quantityChange: quantityAfter - quantityBefore,
+          quantityChange: decision.change,
           quantityBefore,
           quantityAfter,
           referenceType: variantId ? 'product_variant' : 'adjustment',
           referenceId: variantId ?? payload.productId,
-          notes: payload.notes.trim(),
+          notes: decision.notes,
           performedById: null,
           businessDate,
           createdAt: movementCreatedAt,
@@ -5901,21 +5948,6 @@ export class SyncService {
 
     const parsed = new Date(value)
     return Number.isNaN(parsed.getTime()) ? null : parsed
-  }
-
-  private calculateAdjustmentQuantity(
-    currentQuantity: number,
-    payload: InventoryAdjustmentSyncPayload,
-  ) {
-    if (payload.type === StockAdjustmentType.ADD) {
-      return currentQuantity + payload.quantity
-    }
-
-    if (payload.type === StockAdjustmentType.REMOVE) {
-      return currentQuantity - payload.quantity
-    }
-
-    return payload.quantity
   }
 
   private async ensureValidDto(dto: object) {

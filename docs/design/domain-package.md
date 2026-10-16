@@ -119,6 +119,30 @@ slice-4 leftovers; each ends with no copy of its rules outside `packages/domain`
   COMPLETED sales only. Warranty expiry; the inventory bin summary.
 - Stock report rounding (from slice 8).
 
+Done so far (`inventory/stock-rules.ts`):
+
+- Manual adjustments: `checkStockAdjustmentQuantity`, `decideStockAdjustment` (three
+  decimals, no stock below zero, a trimmed reason of 3+ characters; a SET to the current
+  level changes and records nothing) and `checkStockAdjustmentTarget` (a serialized
+  product is adjusted through its units, a product with variants variant by variant,
+  judged on the variant rows, not the `has_variants` flag). Used by the API endpoint, the
+  sync replay (which now refuses what the till would have refused, and still reports a
+  conflict when the server has less stock), the till's main process and the adjust-stock
+  dialog (`previewStockAdjustment` for its preview).
+- `stockChangeMovementType` (first positive change is OPENING_STOCK): the sync applier,
+  the REST variant and serial-unit paths and the till's `stock-ledger.ts`.
+- `newProductStockLevel`, `newVariantStockLevel`, `stockLevelOnEdit`: REST and sync create
+  and edit. A serialized product's level holds its thresholds at quantity 0 (it used to
+  get none on REST create, a level on REST edit, and its unit count as quantity on sync);
+  migration `1790900000000` puts the synced quantities back to 0. The sync-created opening
+  movement now carries its trading day.
+
+Still to do in this slice: sale, void, refund and restock deltas; effective stock and
+low / out of stock; serial unit rules; the till's removal plans and variant signatures;
+the stock reports. The opening movements a variant product records still differ in
+shape (REST: one OPENING_STOCK per variant from 0; sync and the till: product-level
+running totals).
+
 ### 10. Debts and contacts
 
 - Outstanding = original − paid, recomputed in about seven API places and on the till,

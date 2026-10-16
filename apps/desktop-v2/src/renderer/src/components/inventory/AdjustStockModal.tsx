@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { decideStockAdjustment, previewStockAdjustment } from '@biztrack/domain'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
@@ -32,12 +33,7 @@ export function AdjustStockModal({
   const currentStock = variant ? variant.stock : product.currentStock
   const displayName = variant ? `${product.name} — ${variant.name}` : product.name
   const quantity = Number(qty.replace(/\s/g, '')) || 0
-  const resulting =
-    type === 'ADD'
-      ? currentStock + quantity
-      : type === 'REMOVE'
-        ? currentStock - quantity
-        : quantity
+  const resulting = previewStockAdjustment({ current: currentStock, type, quantity })
 
   const reset = () => {
     setType('ADD')
@@ -62,10 +58,21 @@ export function AdjustStockModal({
   })
 
   const submit = () => {
-    if ((type === 'ADD' || type === 'REMOVE') && quantity <= 0) return setErr(t('inv.qtyPositive'))
-    if (type === 'SET' && quantity < 0) return setErr(t('inv.qtyNonNeg'))
-    if (resulting < 0) return setErr(t('inv.insufficient'))
-    if (reason.trim().length < 3) return setErr(t('inv.reasonRequired'))
+    // The same checks, in the same order, as the till and the server (@biztrack/domain).
+    const decision = decideStockAdjustment({ current: currentStock, type, quantity, notes: reason })
+    if (!decision.ok) {
+      return setErr(
+        t(
+          decision.code === 'STOCK_QUANTITY_NEGATIVE'
+            ? 'inv.qtyNonNeg'
+            : decision.code === 'INVENTORY_INSUFFICIENT_STOCK'
+              ? 'inv.insufficient'
+              : decision.code === 'STOCK_REASON_REQUIRED'
+                ? 'inv.reasonRequired'
+                : 'inv.qtyPositive',
+        ),
+      )
+    }
     m.mutate()
   }
 

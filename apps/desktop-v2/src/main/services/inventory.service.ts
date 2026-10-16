@@ -1,12 +1,16 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import {
-  REORDER_WINDOW_DAYS,
   checkRestockCredit,
+  checkStockAdjustmentTarget,
   computeReorderVelocity,
   computeStockoutMs,
+  decideStockAdjustment,
+  REORDER_WINDOW_DAYS,
   settleRestock,
   toWholeXaf,
+  type StockAdjustmentRejection,
+  type StockAdjustmentTargetRejection,
   type StockPoint,
   type VelocityResult,
 } from '@biztrack/domain'
@@ -85,6 +89,22 @@ const INV_FROM = `products p
 const INV_COLS = `p.id, p.name, p.sku, p.image_url, ${COST_EXPR} AS cost_price, p.currency, p.low_stock_threshold, p.reorder_point,
    ${STOCK_EXPR} AS effective_stock, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
 const INV_THRESHOLD = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
+
+/** The till's wording for a refused adjustment (@biztrack/domain codes). */
+const STOCK_ADJUSTMENT_MESSAGES: Record<
+  StockAdjustmentRejection | StockAdjustmentTargetRejection,
+  string
+> = {
+  STOCK_QUANTITY_INVALID: 'Quantity is invalid.',
+  STOCK_QUANTITY_NOT_POSITIVE: 'Quantity must be greater than 0.',
+  STOCK_QUANTITY_NEGATIVE: 'Quantity cannot be negative.',
+  INVENTORY_INSUFFICIENT_STOCK: 'Not enough stock for this adjustment.',
+  STOCK_REASON_REQUIRED: 'A reason (at least 3 characters) is required.',
+  STOCK_NOT_TRACKED: 'This product does not track stock.',
+  STOCK_SERIALIZED: 'Serialized stock is changed by adding or removing serial units.',
+  STOCK_VARIANT_REQUIRED: 'Choose the variant whose stock to adjust.',
+  STOCK_VARIANT_NOT_EXPECTED: 'This product has no variants.',
+}
 
 /**
  * Offline-first inventory operations over the shared stock-ledger. Adjust writes a
@@ -345,37 +365,24 @@ export class InventoryService {
   adjust(productId: string, input: AdjustStockInput): void {
     const businessId = this.requireBusinessId()
     const meta = this.requireProduct(productId, businessId)
-    if (!meta.trackInventory) throw new Error('This product does not track stock.')
-
-    const notes = input.notes.trim()
-    if (notes.length < 3) throw new Error('A reason (at least 3 characters) is required.')
-    if (!Number.isFinite(input.quantity)) throw new Error('Quantity is invalid.')
-    if ((input.type === 'ADD' || input.type === 'REMOVE') && input.quantity <= 0)
-      throw new Error('Quantity must be greater than 0.')
-    if (input.type === 'SET' && input.quantity < 0) throw new Error('Quantity cannot be negative.')
-
     const variantId = input.variantId ?? null
+    // Which level this may change, as the server decides it (@biztrack/domain).
+    const target = checkStockAdjustmentTarget({
+      trackInventory: meta.trackInventory,
+      isSerialized: meta.isSerialized,
+      hasVariants: meta.hasVariants,
+      variantId,
+    })
+    if (target) throw new Error(STOCK_ADJUSTMENT_MESSAGES[target])
     if (variantId) {
-      this.adjustVariant(businessId, productId, meta, variantId, input, notes)
+      this.adjustVariant(businessId, productId, meta, variantId, input)
       return
     }
-    if (meta.isSerialized || meta.hasVariants) {
-      throw new Error(
-        'Adjust applies to direct products only; manage variant/serial stock from their panels.',
-      )
-    }
 
-    const current = meta.stock
-    const next =
-      input.type === 'ADD'
-        ? current + input.quantity
-        : input.type === 'REMOVE'
-          ? current - input.quantity
-          : input.quantity
-    if (next < 0) throw new Error('Not enough stock for this adjustment.')
-
-    const change = next - current
-    if (change === 0) return // no-op (e.g. SET to the current value)
+    const decision = decideStockAdjustment({ current: meta.stock, ...input })
+    if (!decision.ok) throw new Error(STOCK_ADJUSTMENT_MESSAGES[decision.code])
+    const { before: current, after: next, change, notes } = decision
+    if (change === 0) return // nothing changes (a SET to the current level)
 
     const now = new Date().toISOString()
     this.db.run(
@@ -422,28 +429,20 @@ export class InventoryService {
     meta: ProductMeta,
     variantId: string,
     input: AdjustStockInput,
-    notes: string,
   ): void {
-    if (meta.isSerialized) {
-      throw new Error('Serialized stock is changed by adding or removing serial units.')
-    }
     const variant = this.db.get<{ id: string; name: string; stock_quantity: number }>(
       `SELECT id, name, stock_quantity FROM product_variants WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
       [variantId, productId, businessId],
     )
     if (!variant) throw new Error('Variant not found.')
 
-    const current = Number(variant.stock_quantity ?? 0)
-    const next =
-      input.type === 'ADD'
-        ? current + input.quantity
-        : input.type === 'REMOVE'
-          ? current - input.quantity
-          : input.quantity
-    if (next < 0) throw new Error('Not enough stock for this adjustment.')
-
-    const change = next - current
-    if (change === 0) return // no-op
+    const decision = decideStockAdjustment({
+      current: Number(variant.stock_quantity ?? 0),
+      ...input,
+    })
+    if (!decision.ok) throw new Error(STOCK_ADJUSTMENT_MESSAGES[decision.code])
+    const { before: current, after: next, change, notes } = decision
+    if (change === 0) return // nothing changes (a SET to the current level)
 
     const now = new Date().toISOString()
     this.db.run(

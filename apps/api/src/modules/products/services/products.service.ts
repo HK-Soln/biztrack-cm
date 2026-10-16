@@ -3,8 +3,10 @@ import {
   checkBundleComponents,
   checkProductKind,
   checkProductSku,
+  newProductStockLevel,
   productAverageCost,
   productDisplayPrice,
+  stockLevelOnEdit,
 } from '@biztrack/domain'
 import { removeProduct } from '../catalog-removal'
 import { Inject, Injectable } from '@nestjs/common'
@@ -205,6 +207,11 @@ export class ProductsService {
       // Serialised inventory (Phase 3G), checked above with the product's kind.
       const isSerialized = dto.isSerialized === true
 
+      const newLevel = newProductStockLevel({
+        trackInventory,
+        isSerialized,
+        openingStock: dto.openingStock,
+      })
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
           manager.getRepository(Product).create({
@@ -259,9 +266,10 @@ export class ProductsService {
               }),
             ),
           )
-        } else if (trackInventory && !isSerialized) {
-          // Serialised products derive stock from IN_STOCK serial units — no level row.
-          const quantity = dto.openingStock ?? 0
+        } else if (newLevel) {
+          // The level a new product starts with (@biztrack/domain newProductStockLevel): a
+          // serialized product's level holds its thresholds at 0, its stock is its units.
+          const quantity = newLevel.quantity
           await manager.getRepository(InventoryLevel).save(
             manager.getRepository(InventoryLevel).create({
               businessId,
@@ -880,7 +888,9 @@ export class ProductsService {
         const inventoryRepo = manager.getRepository(InventoryLevel)
         const inventoryLevel = await inventoryRepo.findOne({ where: { businessId, productId: id } })
 
-        if (trackInventory && !inventoryLevel) {
+        // What the edit does to the product's own level (@biztrack/domain stockLevelOnEdit).
+        const levelChange = stockLevelOnEdit({ trackInventory, hasLevel: inventoryLevel != null })
+        if (levelChange === 'CREATE') {
           await inventoryRepo.save(
             inventoryRepo.create({
               businessId,
@@ -889,14 +899,14 @@ export class ProductsService {
               lowStockThreshold: dto.lowStockThreshold ?? null,
             }),
           )
-        } else if (trackInventory && inventoryLevel) {
+        } else if (levelChange === 'KEEP' && inventoryLevel) {
           await inventoryRepo.update(inventoryLevel.id, {
             lowStockThreshold:
               dto.lowStockThreshold === undefined
                 ? inventoryLevel.lowStockThreshold
                 : dto.lowStockThreshold,
           })
-        } else if (!trackInventory && inventoryLevel) {
+        } else if (levelChange === 'REMOVE' && inventoryLevel) {
           await inventoryRepo.delete({ id: inventoryLevel.id })
         }
       })

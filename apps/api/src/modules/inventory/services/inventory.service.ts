@@ -22,20 +22,19 @@ import type {
   SetInventoryThresholdRequest,
   SupplierPriceRow,
 } from '@biztrack/types'
-import {
-  DebtDirection,
-  DebtSource,
-  PurchaseOrderStatus,
-  SerialUnitStatus,
-  StockAdjustmentType,
-} from '@biztrack/types'
+import { DebtDirection, DebtSource, PurchaseOrderStatus, SerialUnitStatus } from '@biztrack/types'
 import {
   REORDER_WINDOW_DAYS,
   checkRestockCredit,
+  checkStockAdjustmentQuantity,
+  checkStockAdjustmentTarget,
   computeReorderVelocity,
+  decideStockAdjustment,
   computeStockoutMs,
   settleRestock,
   toWholeXaf,
+  type StockAdjustmentRejection,
+  type StockAdjustmentTargetRejection,
   type StockPoint,
   type VelocityResult,
 } from '@biztrack/domain'
@@ -54,6 +53,7 @@ import { InventoryMovement, MovementType } from '@/entities/inventory-movement.e
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
 import { RestockCharge } from '@/entities/restock-charge.entity'
 import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
@@ -568,9 +568,20 @@ export class InventoryService {
     context?: AuditContext,
   ) {
     try {
-      this.validateAdjustment(dto)
-      await this.requireTrackedProduct(productId, businessId)
+      const quantityProblem = checkStockAdjustmentQuantity(dto)
+      if (quantityProblem) throw await this.stockAdjustmentError(quantityProblem, { ...dto })
+      const level = await this.requireTrackedProduct(productId, businessId)
       const variantId = dto.variantId ?? null
+      const target = checkStockAdjustmentTarget({
+        trackInventory: true,
+        isSerialized: level.product!.isSerialized,
+        // Whether variant rows exist, not the has_variants flag, which can go stale.
+        hasVariants: await this.dataSource
+          .getRepository(ProductVariant)
+          .exists({ where: { businessId, productId, deletedAt: IsNull() } }),
+        variantId,
+      })
+      if (target) throw await this.stockAdjustmentError(target)
       let auditBefore = 0
       let auditAfter = 0
 
@@ -589,18 +600,22 @@ export class InventoryService {
           )
         }
 
-        const quantityBefore = Number(current.quantity)
-        const quantityAfter = this.calculateAdjustedQuantity(quantityBefore, dto)
+        const decision = decideStockAdjustment({
+          current: Number(current.quantity),
+          type: dto.type,
+          quantity: dto.quantity,
+          notes: dto.notes,
+        })
+        if (!decision.ok) {
+          throw await this.stockAdjustmentError(decision.code, {
+            currentQuantity: Number(current.quantity),
+            requested: dto.quantity,
+          })
+        }
+        const { before: quantityBefore, after: quantityAfter } = decision
         auditBefore = quantityBefore
         auditAfter = quantityAfter
-
-        if (quantityAfter < 0) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.inventory_insufficient_stock'),
-            'INVENTORY_INSUFFICIENT_STOCK',
-            { currentQuantity: quantityBefore, requested: dto.quantity },
-          )
-        }
+        if (decision.change === 0) return this.findOne(productId, businessId)
 
         await inventoryRepo.update(current.id, { quantity: quantityAfter })
         // Local trading day (BIZ-5.1) from the business timezone + cutover.
@@ -611,12 +626,12 @@ export class InventoryService {
             productId,
             variantId,
             type: MovementType.MANUAL_ADJUSTMENT,
-            quantityChange: quantityAfter - quantityBefore,
+            quantityChange: decision.change,
             quantityBefore,
             quantityAfter,
             referenceType: variantId ? 'product_variant' : 'adjustment',
             referenceId: variantId ?? undefined,
-            notes: dto.notes.trim(),
+            notes: decision.notes,
             performedById: userId,
             businessDate,
           }),
@@ -1043,28 +1058,51 @@ export class InventoryService {
     }
   }
 
-  private calculateAdjustedQuantity(currentQuantity: number, dto: AdjustInventoryRequest) {
-    if (dto.type === StockAdjustmentType.ADD) return currentQuantity + dto.quantity
-    if (dto.type === StockAdjustmentType.REMOVE) return currentQuantity - dto.quantity
-    return dto.quantity
-  }
-
-  private validateAdjustment(dto: AdjustInventoryRequest) {
-    const isAddOrRemove =
-      dto.type === StockAdjustmentType.ADD || dto.type === StockAdjustmentType.REMOVE
-    const isValid =
-      (isAddOrRemove && dto.quantity > 0) ||
-      (dto.type === StockAdjustmentType.SET && dto.quantity >= 0)
-
-    if (!isValid) {
-      throw new AppBadRequestException(
-        'Invalid adjustment quantity.',
-        'INVALID_INVENTORY_ADJUSTMENT_QUANTITY',
-        {
-          type: dto.type,
-          quantity: dto.quantity,
-        },
-      )
+  /** The error for a refused manual adjustment (@biztrack/domain decideStockAdjustment and
+   * checkStockAdjustmentTarget), with the codes the clients already know. */
+  async stockAdjustmentError(
+    code: StockAdjustmentRejection | StockAdjustmentTargetRejection,
+    details?: Record<string, unknown>,
+  ): Promise<AppException> {
+    switch (code) {
+      case 'INVENTORY_INSUFFICIENT_STOCK':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.inventory_insufficient_stock'),
+          'INVENTORY_INSUFFICIENT_STOCK',
+          details,
+        )
+      case 'STOCK_REASON_REQUIRED':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.stock_adjustment_reason_required'),
+          'INVENTORY_ADJUSTMENT_REASON_REQUIRED',
+          details,
+        )
+      case 'STOCK_NOT_TRACKED':
+        return new AppNotFoundException(
+          await this.i18n.translate('errors.inventory_not_found'),
+          'INVENTORY_NOT_FOUND',
+        )
+      case 'STOCK_SERIALIZED':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.stock_serialized'),
+          'STOCK_SERIALIZED',
+        )
+      case 'STOCK_VARIANT_REQUIRED':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.stock_variant_required'),
+          'STOCK_VARIANT_REQUIRED',
+        )
+      case 'STOCK_VARIANT_NOT_EXPECTED':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.stock_variant_not_expected'),
+          'STOCK_VARIANT_NOT_EXPECTED',
+        )
+      default:
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.stock_adjustment_quantity_invalid'),
+          'INVALID_INVENTORY_ADJUSTMENT_QUANTITY',
+          details,
+        )
     }
   }
 

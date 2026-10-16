@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { stockChangeMovementType } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { StockMovementType } from '../../shared/ipc'
 import { localBusinessDate } from './business-calendar'
@@ -131,9 +132,7 @@ export function recordStockMovement(
   const before = after - change
   const type: StockMovementType =
     opts.type ??
-    (change > 0 && movementCount(db, businessId, productId) === 0
-      ? 'OPENING_STOCK'
-      : 'MANUAL_ADJUSTMENT')
+    stockChangeMovementType({ change, hasHistory: movementCount(db, businessId, productId) > 0 })
   setInventoryLevel(db, businessId, productId, after, now)
   // Local trading day (BIZ-5.1) from the movement's timestamp.
   const businessDate = localBusinessDate(now)

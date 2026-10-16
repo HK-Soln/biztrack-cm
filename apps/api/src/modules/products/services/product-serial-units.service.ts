@@ -28,6 +28,7 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
+import { stockChangeMovementType } from '@biztrack/domain'
 
 /**
  * Manage the individually-tracked units of a serialised product (Phase 4 —
@@ -174,14 +175,14 @@ export class ProductSerialUnitsService {
         }
 
         if (saved.length > 0) {
-          const isOpening = (await movementRepo.count({ where: { businessId, productId } })) === 0
+          const hasHistory = (await movementRepo.count({ where: { businessId, productId } })) > 0
           // Local trading day (BIZ-5.1) from the business timezone + cutover.
           const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
           await movementRepo.save(
             movementRepo.create({
               businessId,
               productId,
-              type: isOpening ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT,
+              type: MovementType[stockChangeMovementType({ change: saved.length, hasHistory })],
               quantityChange: saved.length,
               quantityBefore,
               quantityAfter: quantityBefore + saved.length,

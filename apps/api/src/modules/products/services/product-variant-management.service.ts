@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { findVariantSkuClash, normalizeVariantSku } from '@biztrack/domain'
+import { findVariantSkuClash, normalizeVariantSku, stockChangeMovementType } from '@biztrack/domain'
 import { removeVariant } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -391,8 +391,7 @@ export class ProductVariantManagementService {
   ): Promise<void> {
     const movementRepo = manager.getRepository(InventoryMovement)
     const hasHistory = (await movementRepo.count({ where: { businessId, productId } })) > 0
-    const type =
-      change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    const type = MovementType[stockChangeMovementType({ change, hasHistory })]
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
     await movementRepo.save(

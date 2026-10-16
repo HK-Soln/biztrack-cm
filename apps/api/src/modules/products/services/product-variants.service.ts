@@ -1,4 +1,4 @@
-import { checkVariantCount } from '@biztrack/domain'
+import { checkVariantCount, newVariantStockLevel } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, ILike, In, IsNull, Repository } from 'typeorm'
@@ -284,9 +284,15 @@ export class ProductVariantsService {
         ),
       )
 
-      // Per-variant stock. Serialised variants derive stock from serial units.
-      if (product.trackInventory && !product.isSerialized) {
-        const quantity = override?.openingStock ?? 0
+      // Per-variant stock (@biztrack/domain newVariantStockLevel); a serialized variant's
+      // stock is its units.
+      const newLevel = newVariantStockLevel({
+        trackInventory: product.trackInventory,
+        isSerialized: product.isSerialized,
+        openingStock: override?.openingStock,
+      })
+      if (newLevel) {
+        const quantity = newLevel.quantity
         await inventoryRepo.save(
           inventoryRepo.create({
             businessId,
