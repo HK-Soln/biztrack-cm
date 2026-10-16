@@ -19,7 +19,11 @@ import type { InventoryStats } from '@/common/stats/stock-stats'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
-import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
+import {
+  RequireResource,
+  RequireStaffAction,
+  ResourceGuard,
+} from '@/modules/permissions/guards/resource.guard'
 import { AdjustStockDto } from '../dto/adjust-stock.dto'
 import {
   InventoryAlertDto,
@@ -161,6 +165,7 @@ export class InventoryController {
   }
 
   @Post(':productId/adjust')
+  @RequireStaffAction('STOCK_ADJUST')
   @RequireResource(Resource.INVENTORY_ADJUST)
   @ApiOperation({ summary: 'Adjust product inventory manually' })
   async adjust(

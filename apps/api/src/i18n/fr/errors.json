@@ -130,5 +130,6 @@
   "date_range_too_large": "La plage de dates selectionnee ne peut pas depasser 12 mois.",
   "validation_failed": "Donnees invalides.",
   "server_error": "Une erreur est survenue. Veuillez reessayer.",
-  "rate_limited": "Trop de requetes. Reessayez dans {seconds} secondes."
+  "rate_limited": "Trop de requetes. Reessayez dans {seconds} secondes.",
+  "staff_action_forbidden": "Seuls les propriétaires et les gérants peuvent effectuer cette action."
 }

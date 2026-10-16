@@ -11,8 +11,9 @@ import {
   type VariantInput,
 } from '../../shared/ipc'
 import type { ProductsService } from '../services/products.service'
+import { requireStaff, type RoleSource } from './staff-guard'
 
-export function registerProductsIpc(products: ProductsService): void {
+export function registerProductsIpc(products: ProductsService, getRole: RoleSource): void {
   ipcMain.handle(IPC.productsList, (_e, query?: ProductListQuery) => products.list(query))
   ipcMain.handle(IPC.productsListAll, (_e, query?: ProductListQuery) => products.listAll(query))
   ipcMain.handle(IPC.productsListSellable, (_e, query?: ProductListQuery) =>
@@ -24,7 +25,10 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsUpdate, (_e, id: string, input: ProductInput) =>
     products.update(id, input),
   )
-  ipcMain.handle(IPC.productsDelete, (_e, id: string) => products.remove(id))
+  ipcMain.handle(IPC.productsDelete, (_e, id: string) => {
+    requireStaff(getRole, 'PRODUCT_DELETE')
+    return products.remove(id)
+  })
   ipcMain.handle(IPC.productsListImages, (_e, productId: string, variantId?: string | null) =>
     products.listImages(productId, variantId ?? null),
   )
@@ -52,8 +56,10 @@ export function registerProductsIpc(products: ProductsService): void {
   )
   ipcMain.handle(
     IPC.productsRemoveVariant,
-    (_e, productId: string, variantId: string, reason: string) =>
-      products.removeVariant(productId, variantId, reason),
+    (_e, productId: string, variantId: string, reason: string) => {
+      requireStaff(getRole, 'PRODUCT_DELETE')
+      return products.removeVariant(productId, variantId, reason)
+    },
   )
   ipcMain.handle(IPC.productsListSerialUnits, (_e, productId: string) =>
     products.listSerialUnits(productId),
@@ -79,8 +85,10 @@ export function registerProductsIpc(products: ProductsService): void {
   )
   ipcMain.handle(
     IPC.productsRetireSerialUnit,
-    (_e, productId: string, unitId: string, reason: string) =>
-      products.retireSerialUnit(productId, unitId, reason),
+    (_e, productId: string, unitId: string, reason: string) => {
+      requireStaff(getRole, 'STOCK_ADJUST')
+      return products.retireSerialUnit(productId, unitId, reason)
+    },
   )
   ipcMain.handle(
     IPC.productsUpdateSerialNumber,

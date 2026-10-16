@@ -15,6 +15,7 @@ import { ThresholdModal } from '@/components/inventory/ThresholdModal'
 import { MovementHistoryModal } from '@/components/inventory/MovementHistoryModal'
 import { useT } from '@/i18n'
 import type { LocalProduct } from '@shared/ipc'
+import { useStaffMay } from '@/lib/staff'
 
 // Inline stock-bin card shows only the most recent few movements; the full history
 // (which can grow large) lives behind the "view all" modal.
@@ -32,6 +33,8 @@ function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
 
 export function ProductDetail() {
   const t = useT()
+  const mayAdjust = useStaffMay('STOCK_ADJUST')
+  const mayDelete = useStaffMay('PRODUCT_DELETE')
   const navigate = useNavigate()
   const { id } = useParams()
   const qc = useQueryClient()
@@ -146,7 +149,7 @@ export function ProductDetail() {
               {t('pdv.restock')}
             </Button>
           ) : null}
-          {isDirect ? (
+          {isDirect && mayAdjust ? (
             <Button variant="default" onClick={() => setAdjustOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" />
@@ -161,17 +164,19 @@ export function ProductDetail() {
             </svg>
             {t('pdv.edit')}
           </Button>
-          <Button
-            variant="soft"
-            onClick={() => setConfirmOpen(true)}
-            style={{ color: 'var(--danger)' }}
-            title={t('pdv.delete')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
-            </svg>
-            {t('pdv.delete')}
-          </Button>
+          {mayDelete ? (
+            <Button
+              variant="soft"
+              onClick={() => setConfirmOpen(true)}
+              style={{ color: 'var(--danger)' }}
+              title={t('pdv.delete')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+              </svg>
+              {t('pdv.delete')}
+            </Button>
+          ) : null}
         </div>
       </div>
 

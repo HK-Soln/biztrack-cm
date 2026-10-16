@@ -207,13 +207,9 @@ slice-4 leftovers; each ends with no copy of its rules outside `packages/domain`
   payment, online-order and cash-session transitions, publishability, a second
   `validateSerialNumber`) move into the domain.
 
-### Questions for the owner
-
-- A cash session, a savings account or a purchase order arriving from a till: should the
-  server recompute its figures from the sales and movements it holds and flag a difference
-  (as R1 does for refunds), or keep the till's figures?
-- A product made on a till with opening stock but serialized: keep the server's rule (no
-  stock level; stock comes from serial units)?
+Answered: R21 (who may void, refund, adjust stock or delete), R22 (cash sessions from a
+till), R23 (savings and purchase orders from a till). A serialized product keeps the
+server's rule: no stock level of its own; its stock is its serial units.
 
 ## Divergences found
 
@@ -455,6 +451,32 @@ their buyers and keeps any contact an old order’s sale was charged to),
 `GET /online-store/customers`, `POST /online-store/customers/:id/contact`. Desktop and
 browser: Online → Customers screen and an Add to contacts action on the order drawer.
 Contacts and debts that earlier orders created are left as they are.
+
+### R21. Who may void, refund, adjust stock or delete a product (2026-10-16)
+
+Only an owner or a manager, on the server and on the till alike. Before, the server let
+only owners and managers void but let anyone with the plan refund, adjust stock or delete
+a product; the till hid the void and refund buttons from other roles but its main process
+checked nothing.
+
+As built: `staffMay(role, action)` in `packages/domain/src/entitlements/staff-actions.ts`
+(actions SALE_VOID, SALE_REFUND, STOCK_ADJUST, PRODUCT_DELETE). The server checks it with
+`@RequireStaffAction` on void, refund, stock adjust, product and variant delete and serial
+retire (`STAFF_ACTION_FORBIDDEN`); the till checks it in the IPC handlers for the same
+actions (`main/ipc/staff-guard.ts`); the screens show the buttons by the same rule
+(`useStaffMay`). A serial unit retired counts as a stock adjustment; a variant deleted, as
+a product delete. Voids and refunds arriving by sync are till facts and are not refused.
+
+### R22. A cash session closed on a till (2026-10-16)
+
+The till's counted cash is the fact. The server works out the expected cash and the
+variance from the sales and movements it holds and raises a review flag when its figures
+differ from the till's, as R1 does for refunds.
+
+### R23. Savings accounts and purchase orders from a till (2026-10-16)
+
+The server recomputes balances and totals from the lines and transactions it holds and
+flags a difference from the till's figure.
 
 ### How the rulings are implemented
 

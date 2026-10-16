@@ -9,7 +9,9 @@ export function registerNotificationsIpc(
   realtime: RealtimeClient,
 ): void {
   // Feed
-  ipcMain.handle(IPC.notificationsList, (_e, query?: ListNotificationsQuery) => notifications.list(query))
+  ipcMain.handle(IPC.notificationsList, (_e, query?: ListNotificationsQuery) =>
+    notifications.list(query),
+  )
   ipcMain.handle(IPC.notificationsUnreadCount, () => notifications.unreadCount())
   ipcMain.handle(IPC.notificationsMarkRead, (_e, id: string) => notifications.markRead(id))
   ipcMain.handle(IPC.notificationsMarkAllRead, () => notifications.markAllRead())
@@ -20,6 +22,10 @@ export function registerNotificationsIpc(
 
   // Invitee-side invitations
   ipcMain.handle(IPC.invitationsList, () => notifications.listInvitations())
-  ipcMain.handle(IPC.invitationsAccept, (_e, businessId: string) => notifications.acceptInvitation(businessId))
-  ipcMain.handle(IPC.invitationsReject, (_e, businessId: string) => notifications.rejectInvitation(businessId))
+  ipcMain.handle(IPC.invitationsAccept, (_e, businessId: string) =>
+    notifications.acceptInvitation(businessId),
+  )
+  ipcMain.handle(IPC.invitationsReject, (_e, businessId: string) =>
+    notifications.rejectInvitation(businessId),
+  )
 }

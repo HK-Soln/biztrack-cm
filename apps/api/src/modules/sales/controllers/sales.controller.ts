@@ -32,7 +32,11 @@ import { serializeDto, serializePaginatedResult } from '@/common/http/serializat
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
-import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
+import {
+  RequireResource,
+  RequireStaffAction,
+  ResourceGuard,
+} from '@/modules/permissions/guards/resource.guard'
 import { CashierSummaryQueryDto } from '../dto/cashier-summary-query.dto'
 import { CreateSaleDto } from '../dto/create-sale.dto'
 import { DailySalesSummaryQueryDto } from '../dto/daily-sales-summary-query.dto'
@@ -244,6 +248,7 @@ export class SalesController {
   }
 
   @Post(':id/void')
+  @RequireStaffAction('SALE_VOID')
   @RequireResource(Resource.SALES_VOID)
   @ApiOperation({ summary: 'Void a sale and reverse inventory' })
   async void(
@@ -260,6 +265,7 @@ export class SalesController {
   }
 
   @Post(':id/refund')
+  @RequireStaffAction('SALE_REFUND')
   @RequireResource(Resource.SALES_VOID)
   @ApiOperation({ summary: 'Refund/return a sale, in full or partially' })
   async refund(

@@ -411,6 +411,9 @@ app.whenReady().then(() => {
   )
   registerBrandsIpc(brands)
 
+  // The signed-in member's role, for the role rules the main process holds (R21).
+  const currentRole = () => authService.getSession().user?.role ?? null
+
   // Products: offline-first catalog (brand→category, no stock yet — Inventory owns it).
   const products = new ProductsService(
     db,
@@ -418,7 +421,7 @@ app.whenReady().then(() => {
     () => void sync.sync(),
     audit,
   )
-  registerProductsIpc(products)
+  registerProductsIpc(products, currentRole)
 
   // Contacts (customers & suppliers): offline-first; suppliers back the PO/RFQ flow,
   // customers back sales/debts. Local write + outbox (entity `contacts`).
@@ -537,7 +540,7 @@ app.whenReady().then(() => {
     purchaseOrders,
     audit,
   )
-  registerInventoryIpc(inventory)
+  registerInventoryIpc(inventory, currentRole)
 
   // Sales (POS checkout): offline-first; decrements stock, marks serials sold, raises a
   // receivable on credit, and enqueues the full SaleSyncPayload. Built after products +
@@ -582,7 +585,7 @@ app.whenReady().then(() => {
     () => cashSessions.getCurrent()?.id ?? null,
     () => tokenStore.ensureDeviceId(),
   )
-  registerSalesIpc(sales, savings, documents, authHttp)
+  registerSalesIpc(sales, savings, documents, authHttp, currentRole)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

@@ -130,5 +130,6 @@
   "date_range_too_large": "The selected date range cannot exceed 12 months.",
   "validation_failed": "Invalid data.",
   "server_error": "An error occurred. Please try again.",
-  "rate_limited": "Too many requests. Try again in {seconds} seconds."
+  "rate_limited": "Too many requests. Try again in {seconds} seconds.",
+  "staff_action_forbidden": "Only owners and managers can do this."
 }

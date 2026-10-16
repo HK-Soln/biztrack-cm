@@ -133,6 +133,7 @@ export interface I18nTranslations {
     underpayment: string
     already_voided: string
     sales_void_forbidden: string
+    staff_action_forbidden: string
   }
   plans: {
     selected: string

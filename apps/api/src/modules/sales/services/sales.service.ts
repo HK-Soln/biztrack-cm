@@ -19,10 +19,10 @@ import {
   priceSale,
   refundProfitImpact,
   refundsReport,
-  returnsByCashier,
+  returnDebtReduction,
   returnTotals,
   returnTotalsBy,
-  returnDebtReduction,
+  returnsByCashier,
   reviewSerialAlreadySold,
   reviewStockAfterSyncedSale,
   reviewSyncedDiscount,
@@ -32,12 +32,12 @@ import {
   saleReturnStatus,
   settleSale,
   settleSaleFromLedger,
+  staffMay,
   storedPaymentMethod,
   toWholeXaf,
   variantCost,
 } from '@biztrack/domain'
 import {
-  BusinessMemberRole,
   DebtDirection,
   DebtSource,
   PaymentMethod,
@@ -1648,11 +1648,7 @@ export class SalesService {
     context?: AuditContext,
   ) {
     try {
-      if (
-        ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
-          user.role as BusinessMemberRole,
-        )
-      ) {
+      if (!staffMay(user.role, 'SALE_VOID')) {
         throw new AppForbiddenException(
           await this.i18n.translate('errors.sales_void_forbidden'),
           'FORBIDDEN',
@@ -1868,6 +1864,12 @@ export class SalesService {
    */
   async refund(id: string, businessId: string, user: JwtPayload, input: RefundSaleInput) {
     try {
+      if (!staffMay(user.role, 'SALE_REFUND')) {
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.staff_action_forbidden'),
+          'STAFF_ACTION_FORBIDDEN',
+        )
+      }
       await this.dataSource.transaction(async (manager) => {
         const sale = await this.findSaleDetailBy('sale.id = :id', { id, businessId }, manager)
         if (!sale) {

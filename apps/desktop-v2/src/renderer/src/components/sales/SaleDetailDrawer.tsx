@@ -4,12 +4,12 @@ import { Button, Modal } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
-import { useSessionStore } from '@/stores/session.store'
 import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
 import { isWindows } from '@/lib/titlebar'
 import { formatSaleDateTime, saleInitials, salePaidByLabel, saleStatusInfo } from './sale-format'
+import { useStaffMay } from '@/lib/staff'
 
 const VOID_MIN_REASON = 10
 
@@ -96,8 +96,8 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
   const qc = useQueryClient()
-  const role = useSessionStore((s) => s.status.user?.role)
-  const canVoid = ['OWNER', 'MANAGER'].includes((role ?? '').toUpperCase())
+  const canVoid = useStaffMay('SALE_VOID')
+  const canRefund = useStaffMay('SALE_REFUND')
   const [printing, setPrinting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [sendOpen, setSendOpen] = useState(false)
@@ -322,7 +322,7 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
           </div>
         </div>
 
-        {canVoid && isRefundable ? (
+        {canRefund && isRefundable ? (
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button
               type="button"

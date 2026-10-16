@@ -18,7 +18,11 @@ import { serializeDto, serializeDtos, serializePaginatedResult } from '@/common/
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
-import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
+import {
+  RequireResource,
+  RequireStaffAction,
+  ResourceGuard,
+} from '@/modules/permissions/guards/resource.guard'
 import { AddSerialUnitsDto } from '../dto/add-serial-units.dto'
 import { ListSerialUnitsQueryDto } from '../dto/list-serial-units-query.dto'
 import { RetireSerialUnitDto } from '../dto/retire-serial-unit.dto'
@@ -87,6 +91,7 @@ export class ProductSerialUnitsController {
   }
 
   @Delete(':unitId')
+  @RequireStaffAction('STOCK_ADJUST')
   @RequireResource(Resource.INVENTORY_ADJUST)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Retire a serial unit from stock (writes a stock-out movement)' })

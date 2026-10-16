@@ -20,6 +20,7 @@ import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
 import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
 import { VariantEditModal } from './VariantEditModal'
 import type { LocalProduct, LocalVariant, ProductImageInput, VariantInput } from '@shared/ipc'
+import { useStaffMay } from '@/lib/staff'
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : null)
 const PAGE_SIZE = 5
@@ -32,6 +33,8 @@ const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif
  */
 export function ManageVariants({ product }: { product: LocalProduct }) {
   const t = useT()
+  const mayAdjust = useStaffMay('STOCK_ADJUST')
+  const mayDelete = useStaffMay('PRODUCT_DELETE')
   const qc = useQueryClient()
   const bp = useBreakpoint()
   const money = useCurrency()
@@ -199,15 +202,17 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
     ]
     // Non-serialized variants keep a plain stock balance we can adjust; serialized variants
     // change stock only by adding/removing serial units.
-    if (!product.isSerialized) {
+    if (!product.isSerialized && mayAdjust) {
       items.push({ label: t('pvar.adjustStock'), icon: adjustIcon, onClick: () => setAdjust(v) })
     }
-    items.push({
-      label: t('pvar.remove'),
-      icon: delIcon,
-      danger: true,
-      onClick: () => setRemove(v),
-    })
+    if (mayDelete) {
+      items.push({
+        label: t('pvar.remove'),
+        icon: delIcon,
+        danger: true,
+        onClick: () => setRemove(v),
+      })
+    }
     return <ActionMenu items={items} label={t('pvar.colActions')} />
   }
   const statusPill = (v: LocalVariant) =>
