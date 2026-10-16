@@ -6,9 +6,12 @@ import {
   checkSerialEdit,
   checkSerialRetire,
   decideSerialAdd,
+  findVariantComboClash,
   findVariantSkuClash,
   normalizeBarcode,
   normalizeVariantSku,
+  planProductRemoval,
+  planVariantRemoval,
   productKindToStore,
   productStockFlags,
   productTakesVariants,
@@ -17,6 +20,7 @@ import {
   slugify,
   uniqueSlug,
   validateSerialNumber,
+  variantSignature,
 } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -162,11 +166,6 @@ interface MovementRow {
 }
 
 const OPENING_STOCK_NOTE = 'Opening stock recorded at product creation.'
-
-/** Stable signature of a variant = its sorted attribute-option ids. */
-function variantSignature(optionIds: string[]): string {
-  return [...optionIds].sort().join('|')
-}
 
 const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
@@ -704,13 +703,14 @@ export class ProductsService {
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
 
-    // Write off any remaining stock (ledger → 0). effectiveStock is 0 now, so
-    // recordStockMovement records before=stockBefore, after=0.
-    if (stockBefore > 0) {
+    // Write off any remaining stock (ledger → 0; @biztrack/domain planProductRemoval, as the
+    // server). effectiveStock is 0 now, so the movement records before=stockBefore, after=0.
+    const plan = planProductRemoval({ stock: stockBefore })
+    if (plan.writeOff > 0) {
       this.recordStockMovement(
         id,
         businessId,
-        -stockBefore,
+        -plan.writeOff,
         { referenceType: 'product', referenceId: id, notes: 'Product deleted' },
         now,
       )
@@ -1184,18 +1184,15 @@ export class ProductsService {
     if (!hasOptions && !input.name?.trim()) {
       throw new Error('Give the variant a name or select at least one option.')
     }
-    if (hasOptions) {
-      const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
-      if (
-        this.listVariants(productId).some(
-          (v) =>
-            v.options.length > 0 &&
-            variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
-        )
-      ) {
-        throw new Error('A variant with this combination already exists.')
-      }
-    }
+    // The same combination as another variant (@biztrack/domain, as the server).
+    const clash = findVariantComboClash(
+      this.listVariants(productId).map((v) => ({
+        id: v.id,
+        optionIds: v.options.map((o) => o.attributeOptionId),
+      })),
+      input.options.map((o) => o.attributeOptionId),
+    )
+    if (clash) throw new Error('A variant with this combination already exists.')
     this.assertVariantSkusFree(businessId, [{ sku: normalizeVariantSku(input.sku) }])
     const id = randomUUID()
     const sortOrder = this.listVariants(productId).length
@@ -1386,17 +1383,20 @@ export class ProductsService {
     if (!product) throw new Error('Product not found.')
     const variant = this.listVariants(productId).find((v) => v.id === variantId)
     if (!variant) throw new Error('Variant not found.')
+    // The reason and write-off (@biztrack/domain planVariantRemoval, as the server); the
+    // stock is known once the variant's units are counted, so the plan is made twice.
+    if (!planVariantRemoval({ reason, stock: 0 }).ok)
+      throw new Error('A reason is required to remove a variant.')
     const trimmed = reason.trim()
-    if (!trimmed) throw new Error('A reason is required to remove a variant.')
     const now = new Date().toISOString()
 
-    let writeOff: number
+    let stock: number
     if (product.isSerialized) {
       const units = this.db.query<{ id: string }>(
         `SELECT id FROM product_serial_units WHERE business_id = ? AND product_id = ? AND variant_id = ? AND is_deleted = 0 AND status = 'IN_STOCK'`,
         [businessId, productId, variantId],
       )
-      writeOff = units.length
+      stock = units.length
       for (const u of units) {
         this.db.run(
           `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
@@ -1405,8 +1405,10 @@ export class ProductsService {
         this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
       }
     } else {
-      writeOff = variant.stockQuantity
+      stock = variant.stockQuantity
     }
+    const plan = planVariantRemoval({ reason, stock })
+    if (!plan.ok) throw new Error('A reason is required to remove a variant.')
 
     this.db.run(
       `UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`,
@@ -1425,11 +1427,11 @@ export class ProductsService {
       now,
     )
 
-    if (writeOff > 0) {
+    if (plan.writeOff > 0) {
       this.recordStockMovement(
         productId,
         businessId,
-        -writeOff,
+        -plan.writeOff,
         { referenceType: 'product_variant', referenceId: variantId, variantId, notes: trimmed },
         now,
       )

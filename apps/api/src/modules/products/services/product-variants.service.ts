@@ -1,4 +1,4 @@
-import { checkVariantCount, newVariantStockLevel } from '@biztrack/domain'
+import { checkVariantCount, newVariantStockLevel, variantSignature } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, ILike, In, IsNull, Repository } from 'typeorm'
@@ -425,11 +425,8 @@ export class ProductVariantsService {
     overrides: VariantOverride[],
     combo: AttributeOption[],
   ): VariantOverride | undefined {
-    const key = combo
-      .map((option) => option.id)
-      .sort()
-      .join('|')
-    return overrides.find((override) => [...override.optionIds].sort().join('|') === key)
+    const key = variantSignature(combo.map((option) => option.id))
+    return overrides.find((override) => variantSignature(override.optionIds) === key)
   }
 
   private async handleServiceError(

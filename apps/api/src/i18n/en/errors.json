@@ -52,6 +52,7 @@
   "variant_options_required": "Select at least one option for the variant.",
   "variant_name_or_options_required": "Give the variant a name or select at least one option.",
   "variant_duplicate_combination": "A variant with this combination already exists.",
+  "variant_remove_reason_required": "A reason is required to remove a variant.",
   "variant_duplicate_sku": "The code \"{sku}\" is already used by another variant. Codes must be unique.",
   "brand_not_found": "Brand not found.",
   "model_not_found": "Model not found.",

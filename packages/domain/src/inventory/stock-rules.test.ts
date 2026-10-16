@@ -4,6 +4,8 @@ import {
   decideStockAdjustment,
   newProductStockLevel,
   newVariantStockLevel,
+  planProductRemoval,
+  planVariantRemoval,
   previewStockAdjustment,
   productStockStatus,
   productStockStatusSql,
@@ -232,5 +234,23 @@ describe('saleStockLines', () => {
       { productId: 'oil', variantId: null, quantity: 1.5, tag: 'b' },
       { productId: 'rice', variantId: null, quantity: 1, tag: 'r' },
     ])
+  })
+})
+
+describe('removal plans', () => {
+  it('writes off what a deleted product holds', () => {
+    expect(planProductRemoval({ stock: 4 })).toMatchObject({ writeOff: 4, serialStatus: 'DAMAGED' })
+    expect(planProductRemoval({ stock: -1 }).writeOff).toBe(0)
+  })
+  it('needs a reason to remove a variant', () => {
+    expect(planVariantRemoval({ reason: ' ', stock: 2 })).toEqual({
+      ok: false,
+      code: 'VARIANT_REMOVE_REASON_REQUIRED',
+    })
+    expect(planVariantRemoval({ reason: ' discontinued ', stock: 2 })).toMatchObject({
+      ok: true,
+      reason: 'discontinued',
+      writeOff: 2,
+    })
   })
 })

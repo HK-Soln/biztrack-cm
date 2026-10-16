@@ -39,6 +39,30 @@ export function checkVariantCount(count: number): 'PRODUCT_VARIANTS_REQUIRED' | 
   return count >= MIN_PRODUCT_VARIANTS ? null : 'PRODUCT_VARIANTS_REQUIRED'
 }
 
+/** A variant's combination: its attribute-option ids, in any order. */
+export function variantSignature(optionIds: readonly string[]): string {
+  return [...optionIds].sort().join('|')
+}
+
+/**
+ * The variant of the same product that already has this combination of options, if any. A
+ * free-form variant (no options) never clashes. `exceptId` is the variant being edited.
+ */
+export function findVariantComboClash<V extends { id: string; optionIds: readonly string[] }>(
+  existing: readonly V[],
+  optionIds: readonly string[],
+  exceptId?: string | null,
+): V | null {
+  if (optionIds.length === 0) return null
+  const signature = variantSignature(optionIds)
+  return (
+    existing.find(
+      (v) =>
+        v.id !== exceptId && v.optionIds.length > 0 && variantSignature(v.optionIds) === signature,
+    ) ?? null
+  )
+}
+
 /** Categories nest at most three levels deep. */
 export const MAX_CATEGORY_DEPTH = 3
 

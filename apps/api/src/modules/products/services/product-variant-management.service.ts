@@ -1,5 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { findVariantSkuClash, normalizeVariantSku, stockChangeMovementType } from '@biztrack/domain'
+import {
+  findVariantComboClash,
+  findVariantSkuClash,
+  normalizeVariantSku,
+  planVariantRemoval,
+  stockChangeMovementType,
+} from '@biztrack/domain'
 import { removeVariant } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -33,8 +39,6 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
 import { ProductVariantsService } from './product-variants.service'
-
-const sig = (optionIds: string[]): string => [...optionIds].sort().join('|')
 
 /**
  * Granular, movement-based variant management (Phase 4). The variant SET is
@@ -104,14 +108,18 @@ export class ProductVariantManagementService {
         const links = await this.variantOptionsRepo.find({
           where: { variantId: In(existing.map((v) => v.id)), businessId, deletedAt: IsNull() },
         })
-        const sigsByVariant = new Map<string, string[]>()
+        const optionsByVariant = new Map<string, string[]>()
         for (const link of links) {
-          const list = sigsByVariant.get(link.variantId) ?? []
+          const list = optionsByVariant.get(link.variantId) ?? []
           list.push(link.attributeOptionId)
-          sigsByVariant.set(link.variantId, list)
+          optionsByVariant.set(link.variantId, list)
         }
-        const taken = new Set([...sigsByVariant.values()].map((ids) => sig(ids)))
-        if (taken.has(sig(dto.options!.map((o) => o.attributeOptionId)))) {
+        // The same combination as another variant (@biztrack/domain, as the till).
+        const clash = findVariantComboClash(
+          [...optionsByVariant].map(([id, optionIds]) => ({ id, optionIds })),
+          dto.options!.map((o) => o.attributeOptionId),
+        )
+        if (clash) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.variant_duplicate_combination'),
             'VARIANT_DUPLICATE_COMBINATION',
@@ -330,7 +338,14 @@ export class ProductVariantManagementService {
     try {
       const product = await this.requireProduct(productId, businessId)
       const variant = await this.requireVariant(productId, variantId, businessId)
-      const reason = dto.reason.trim()
+      const plan = planVariantRemoval({ reason: dto.reason, stock: 0 })
+      if (!plan.ok) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.variant_remove_reason_required'),
+          plan.code,
+        )
+      }
+      const { reason } = plan
 
       // Local trading day (BIZ-5.1) from the business timezone + cutover.
       const businessDate = await this.calendar.computeForBusiness(businessId, new Date())

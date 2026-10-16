@@ -282,3 +282,45 @@ export function saleStockLines<
   }
   return out
 }
+
+/**
+ * What deleting a product does to its stock: whatever it still holds is written off with a
+ * MANUAL_ADJUSTMENT movement (none when it holds nothing), its serial units become DAMAGED and
+ * are removed, and its levels go to 0. `stock` is its effective stock before the delete.
+ */
+export function planProductRemoval(input: { stock: number }): {
+  writeOff: number
+  movementType: 'MANUAL_ADJUSTMENT'
+  serialStatus: 'DAMAGED'
+} {
+  return {
+    writeOff: Math.max(0, roundQuantity(input.stock)),
+    movementType: 'MANUAL_ADJUSTMENT',
+    serialStatus: 'DAMAGED',
+  }
+}
+
+/**
+ * Removing one variant: it needs a reason; its stock (its level, or its in-stock units for a
+ * serialized product) is written off against the variant; its units become DAMAGED. A product
+ * left without variants becomes a product without variants.
+ */
+export function planVariantRemoval(input: { reason?: string | null; stock: number }):
+  | {
+      ok: true
+      reason: string
+      writeOff: number
+      movementType: 'MANUAL_ADJUSTMENT'
+      serialStatus: 'DAMAGED'
+    }
+  | { ok: false; code: 'VARIANT_REMOVE_REASON_REQUIRED' } {
+  const reason = (input.reason ?? '').trim()
+  if (!reason) return { ok: false, code: 'VARIANT_REMOVE_REASON_REQUIRED' }
+  return {
+    ok: true,
+    reason,
+    writeOff: Math.max(0, roundQuantity(input.stock)),
+    movementType: 'MANUAL_ADJUSTMENT',
+    serialStatus: 'DAMAGED',
+  }
+}

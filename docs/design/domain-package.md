@@ -176,8 +176,15 @@ Done so far (`inventory/stock-rules.ts`):
   bundle was taken from a level on the server. The till now writes a serialized product's
   movement after its units are released, so the movement's counts are right.
 
-Still to do in this slice: the restock deltas; the till's removal plans and variant
-signatures; the stock reports; the server writes no movement for a serialized product's
+- `planProductRemoval`, `planVariantRemoval`, `variantSignature`, `findVariantComboClash`:
+  the server's `catalog-removal.ts`, the REST variant removal and the till's product and
+  variant removal; the combination check on the server's and the till's add-variant. The
+  server's variant write-off now names the variant, as the till's did. Removing the last
+  variant leaves a product without variants on both sides (R14 is about creating one). The
+  sync path applies a variant's options one link at a time and does not check the
+  combination.
+
+Still to do in this slice: the restock deltas; the stock reports; the server writes no movement for a serialized product's
 sale or void (the till does);
 the variant check on a restock's serial units (neither the server's restock nor the
 till's add path checks it); which serial status changes a synced unit may make. The opening movements a variant product records still differ in

@@ -1,4 +1,5 @@
 import { In, IsNull, type EntityManager } from 'typeorm'
+import { planProductRemoval, planVariantRemoval } from '@biztrack/domain'
 import { SerialUnitStatus } from '@biztrack/types'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
@@ -112,9 +113,11 @@ export async function removeProduct(
     .update({ productId: id, businessId }, { quantity: 0, updatedAt: at })
   await manager.getRepository(ProductImage).delete({ productId: id })
 
+  // What the delete writes off (@biztrack/domain planProductRemoval, as the till).
+  const plan = planProductRemoval({ stock: stockBefore })
   await writeOff(manager, ctx, {
     productId: id,
-    quantity: stockBefore,
+    quantity: plan.writeOff,
     before: stockBefore,
     referenceType: 'product',
     referenceId: id,
@@ -135,7 +138,7 @@ export async function removeVariant(
 ): Promise<void> {
   const { businessId } = ctx
   const productId = input.product.id
-  const { variantId, reason } = input
+  const { variantId } = input
   let before: number
   let quantity: number
 
@@ -147,7 +150,10 @@ export async function removeVariant(
     })
     quantity = units.length
     for (const unit of units) {
-      await serialRepo.update({ id: unit.id }, { status: SerialUnitStatus.DAMAGED, notes: reason })
+      await serialRepo.update(
+        { id: unit.id },
+        { status: SerialUnitStatus.DAMAGED, notes: input.reason.trim() },
+      )
       await serialRepo.softDelete({ id: unit.id })
     }
   } else {
@@ -166,15 +172,20 @@ export async function removeVariant(
     if (level) await levels.update({ id: level.id }, { quantity: 0 })
   }
 
+  // The removal's reason and write-off (@biztrack/domain planVariantRemoval, as the till);
+  // the movement names the variant.
+  const plan = planVariantRemoval({ reason: input.reason, stock: quantity })
+  if (!plan.ok) throw new Error(plan.code)
   await manager.getRepository(ProductVariantOption).softDelete({ variantId, businessId })
   await manager.getRepository(ProductVariant).softDelete({ id: variantId })
   await writeOff(manager, ctx, {
     productId,
-    quantity,
+    variantId,
+    quantity: plan.writeOff,
     before,
     referenceType: 'product_variant',
     referenceId: variantId,
-    notes: reason,
+    notes: plan.reason,
   })
 
   const remaining = await manager

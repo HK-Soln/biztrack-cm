@@ -15,6 +15,8 @@ import {
   placeCategory,
   productStockFlags,
   validateSerialNumber,
+  findVariantComboClash,
+  variantSignature,
 } from './catalog-rules'
 
 describe('productStockFlags (R13)', () => {
@@ -220,5 +222,19 @@ describe('bundles', () => {
       limitedBy: 'Oil',
     })
     expect(bundleCanMake([])).toEqual({ canMake: 0, limitedBy: null })
+  })
+})
+
+describe('variant combinations', () => {
+  const existing = [
+    { id: 'v1', optionIds: ['red', 'm'] },
+    { id: 'v2', optionIds: [] },
+  ]
+  it('finds a variant with the same options in any order', () => {
+    expect(variantSignature(['m', 'red'])).toBe(variantSignature(['red', 'm']))
+    expect(findVariantComboClash(existing, ['m', 'red'])?.id).toBe('v1')
+    expect(findVariantComboClash(existing, ['m', 'red'], 'v1')).toBeNull()
+    expect(findVariantComboClash(existing, [])).toBeNull()
+    expect(findVariantComboClash(existing, ['blue', 'm'])).toBeNull()
   })
 })
