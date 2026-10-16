@@ -247,3 +247,14 @@ export function buildReorderDigest(
     supplierGroups,
   }
 }
+
+/**
+ * How much to order for a product that needs reordering: up to a par level of twice its
+ * reorder target, so the order clears the alert (ordering just up to the target leaves it
+ * flagged), and at least one. `target` is the product's reorder point (else its low-stock
+ * threshold); for a product with variants, the sum of its variants' targets.
+ */
+export function suggestedReorderQuantity(input: { stock: number; target: number }): number {
+  const stock = Math.max(0, input.stock)
+  return input.target > 0 ? Math.max(input.target * 2 - stock, 1) : 1
+}

@@ -47,10 +47,12 @@ import {
   PRICE_EXPR,
   DISPLAY_PRICE_EXPR,
   STOCK_EXPR,
+  STOCK_STATUS_EXPR,
   effectiveStock as effectiveStockFn,
   movementCount as movementCountFn,
   recordStockMovement as recordStockMovementFn,
   setInventoryLevel as setInventoryLevelFn,
+  stockStatusWhere,
 } from './stock-ledger'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
@@ -89,6 +91,7 @@ interface ProductRow {
   reorder_point: number | null
   stock_quantity: number | null
   effective_stock: number | null
+  stock_status: 'OUT' | 'LOW' | 'IN'
   effective_price: number | null
   effective_cost: number | null
   has_variants: number
@@ -171,7 +174,7 @@ const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
    p.is_serialized, p.serial_type, p.warranty_months, p.unique_items,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
-   ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
+   ${STOCK_STATUS_EXPR} AS stock_status, ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) AS has_variants,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM = `products p
@@ -262,15 +265,7 @@ export class ProductsService {
       params.push(query.isActive ? 1 : 0)
     }
     if (query.stockStatus && query.stockStatus !== 'all') {
-      const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
-      const stock = STOCK_EXPR
-      if (query.stockStatus === 'out') {
-        where += ` AND p.track_inventory = 1 AND ${stock} <= 0`
-      } else if (query.stockStatus === 'low') {
-        where += ` AND p.track_inventory = 1 AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`
-      } else if (query.stockStatus === 'in') {
-        where += ` AND p.track_inventory = 1 AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`
-      }
+      where += ` AND p.track_inventory = 1 AND ${stockStatusWhere(query.stockStatus)}`
     }
 
     // Robust search: the product's name/sku/barcode, OR any variant's name/sku/barcode, OR any
@@ -439,7 +434,6 @@ export class ProductsService {
     }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
-    const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
     const stock = STOCK_EXPR
     const row = this.db.get<{
       totalSkus: number
@@ -454,9 +448,8 @@ export class ProductsService {
          COUNT(DISTINCT p.category_id) AS categories,
          COALESCE(SUM(COALESCE(${COST_EXPR}, 0) * ${stock}), 0) AS catalogValueCost,
          COALESCE(SUM(${PRICE_EXPR} * ${stock}), 0) AS retailValue,
-         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} > 0
-           AND ${thr} > 0 AND ${stock} <= ${thr} THEN 1 ELSE 0 END), 0) AS lowStock,
-         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${STOCK_STATUS_EXPR} = 'LOW' THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${STOCK_STATUS_EXPR} = 'OUT' THEN 1 ELSE 0 END), 0) AS outOfStock
        FROM products p WHERE p.business_id = ? AND p.is_deleted = 0`,
       [businessId],
     )
@@ -2387,6 +2380,8 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     lowStockThreshold: row.low_stock_threshold,
     reorderPoint: row.reorder_point,
     currentStock: row.effective_stock ?? row.stock_quantity ?? 0,
+    stockStatus:
+      row.track_inventory === 1 ? (row.stock_status.toLowerCase() as 'in' | 'low' | 'out') : null,
     hasVariants: row.has_variants === 1,
     categoryName: row.category_name,
     brandName: row.brand_name,

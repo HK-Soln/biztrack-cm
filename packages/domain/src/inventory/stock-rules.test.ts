@@ -5,8 +5,11 @@ import {
   newProductStockLevel,
   newVariantStockLevel,
   previewStockAdjustment,
+  productStockStatus,
+  productStockStatusSql,
   stockChangeMovementType,
   stockLevelOnEdit,
+  stockStatusSql,
 } from './stock-rules'
 
 describe('decideStockAdjustment', () => {
@@ -152,5 +155,41 @@ describe('newVariantStockLevel', () => {
       newVariantStockLevel({ trackInventory: true, isSerialized: true, openingStock: 2 }),
     ).toBeNull()
     expect(newVariantStockLevel({ trackInventory: false, isSerialized: false })).toBeNull()
+  })
+})
+
+describe('productStockStatus', () => {
+  it('judges a product without variants on its own level', () => {
+    expect(productStockStatus({ stock: 0 })).toBe('OUT')
+    expect(productStockStatus({ stock: 3, reorderPoint: 5, lowStockThreshold: 1 })).toBe('LOW')
+    expect(productStockStatus({ stock: 3, lowStockThreshold: 2 })).toBe('IN')
+  })
+  it('is low when any variant is out or low, out when they hold nothing', () => {
+    expect(productStockStatus({ stock: 9, variants: [{ stock: 9 }, { stock: 0 }] })).toBe('LOW')
+    expect(
+      productStockStatus({
+        stock: 9,
+        variants: [{ stock: 5 }, { stock: 4, lowStockThreshold: 4 }],
+      }),
+    ).toBe('LOW')
+    expect(productStockStatus({ stock: 9, variants: [{ stock: 5 }, { stock: 4 }] })).toBe('IN')
+    expect(productStockStatus({ stock: 0, variants: [{ stock: 0 }, { stock: 0 }] })).toBe('OUT')
+  })
+})
+
+describe('stockStatusSql', () => {
+  it('writes the same rule as a CASE expression', () => {
+    expect(stockStatusSql('s', 'rp', 'lt')).toBe(
+      "(CASE WHEN s <= 0 THEN 'OUT' WHEN COALESCE(rp, lt, 0) > 0 AND s <= COALESCE(rp, lt, 0) THEN 'LOW' ELSE 'IN' END)",
+    )
+    expect(
+      productStockStatusSql({
+        stock: 's',
+        reorderPoint: 'rp',
+        lowStockThreshold: 'lt',
+        hasVariants: 'hv',
+        anyVariantShort: 'short',
+      }),
+    ).toContain("WHEN hv THEN (CASE WHEN s <= 0 THEN 'OUT' WHEN short THEN 'LOW' ELSE 'IN' END)")
   })
 })

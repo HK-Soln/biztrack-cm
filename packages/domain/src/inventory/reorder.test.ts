@@ -8,6 +8,7 @@ import {
   computeRevenueAtRisk,
   computeStockoutMs,
   type ReorderDigestLineInput,
+  suggestedReorderQuantity,
 } from './reorder'
 
 const DAY = 86_400_000
@@ -171,5 +172,14 @@ describe('buildReorderDigest', () => {
     const g = d.supplierGroups[0]!
     expect(g.lines.map((l) => l.productId)).toEqual(['b', 'a'])
     expect(g.estOrderCost).toBe(5 * 200 + 3 * 100)
+  })
+})
+
+describe('suggestedReorderQuantity', () => {
+  it('orders up to twice the target, at least one', () => {
+    expect(suggestedReorderQuantity({ stock: 3, target: 5 })).toBe(7)
+    expect(suggestedReorderQuantity({ stock: -2, target: 5 })).toBe(10)
+    expect(suggestedReorderQuantity({ stock: 12, target: 5 })).toBe(1)
+    expect(suggestedReorderQuantity({ stock: 0, target: 0 })).toBe(1)
   })
 })

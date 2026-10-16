@@ -1,3 +1,5 @@
+import { productStockStatusSql, stockStatusSql } from '@biztrack/domain'
+
 /**
  * Shared raw-SQL fragments + response shapes for the catalog/inventory stats endpoints.
  *
@@ -65,11 +67,62 @@ export function displayPriceExpr(a = 'p'): string {
   END)`
 }
 
-/** Low-stock threshold from the product-level inventory row (reorder ?? low ?? 0). */
-export function thresholdExpr(a = 'p'): string {
-  return `COALESCE((
-    SELECT COALESCE(il.reorder_point, il.low_stock_threshold, 0) FROM inventory_levels il
-    WHERE il.product_id = ${a}.id AND il.variant_id IS NULL AND il.deleted_at IS NULL LIMIT 1), 0)`
+/** A live variant's on-hand stock (`pv` alias): its IN_STOCK units for a serialized product,
+ * else its inventory level. */
+function variantStockExpr(a: string): string {
+  return `(CASE WHEN ${a}.is_serialized THEN (
+      SELECT COUNT(*) FROM product_serial_units su
+      WHERE su.variant_id = pv.id AND su.deleted_at IS NULL AND su.status = 'IN_STOCK')
+    ELSE COALESCE((SELECT il.quantity FROM inventory_levels il
+      WHERE il.variant_id = pv.id AND il.deleted_at IS NULL LIMIT 1), 0) END)`
+}
+
+function levelColumn(
+  column: 'reorder_point' | 'low_stock_threshold',
+  variant: string | null,
+  a: string,
+) {
+  return variant
+    ? `(SELECT il.${column} FROM inventory_levels il WHERE il.variant_id = ${variant} AND il.deleted_at IS NULL LIMIT 1)`
+    : `(SELECT il.${column} FROM inventory_levels il WHERE il.product_id = ${a}.id AND il.variant_id IS NULL AND il.deleted_at IS NULL LIMIT 1)`
+}
+
+/**
+ * Where a product's stock stands, 'OUT' | 'LOW' | 'IN' (@biztrack/domain productStockStatus,
+ * the till's STOCK_STATUS_EXPR): its own thresholds, or, for a product with variants, low as
+ * soon as one variant is out or low by its own thresholds.
+ */
+export function stockStatusExpr(a = 'p'): string {
+  return productStockStatusSql({
+    stock: stockExpr(a),
+    reorderPoint: levelColumn('reorder_point', null, a),
+    lowStockThreshold: levelColumn('low_stock_threshold', null, a),
+    hasVariants: variantsExist(a),
+    anyVariantShort: `EXISTS (SELECT 1 FROM product_variants pv
+      WHERE pv.product_id = ${a}.id AND pv.deleted_at IS NULL
+        AND ${stockStatusSql(
+          variantStockExpr(a),
+          levelColumn('reorder_point', 'pv.id', a),
+          levelColumn('low_stock_threshold', 'pv.id', a),
+        )} <> 'IN')`,
+  })
+}
+
+/**
+ * The level a product is reordered towards: its reorder point, else its low-stock threshold
+ * (the threshold @biztrack/domain stockStatus uses); for a product with variants, the sum of
+ * its variants' (as the till's reorder suggestions).
+ */
+export function reorderTargetExpr(a = 'p'): string {
+  return `(CASE WHEN ${variantsExist(a)} THEN (
+      SELECT COALESCE(SUM(COALESCE(${levelColumn('reorder_point', 'pv.id', a)}, ${levelColumn('low_stock_threshold', 'pv.id', a)}, 0)), 0)
+      FROM product_variants pv WHERE pv.product_id = ${a}.id AND pv.deleted_at IS NULL)
+    ELSE COALESCE(${levelColumn('reorder_point', null, a)}, ${levelColumn('low_stock_threshold', null, a)}, 0) END)`
+}
+
+/** The list filter value ('in' | 'low' | 'out') as a SQL condition on stockStatusExpr. */
+export function stockStatusWhere(status: 'in' | 'low' | 'out', a = 'p'): string {
+  return `${stockStatusExpr(a)} = '${status.toUpperCase()}'`
 }
 
 export function round2(n: number): number {

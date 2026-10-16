@@ -51,6 +51,7 @@ export interface RoleLimits {
 export interface SalesSyncHarness {
   dataSource: DataSource
   sales: SalesService
+  inventory: InventoryService
   reviewFlags: ReviewFlagsService
   businessId: string
   /** The owner: cashier of every seeded sale, and the user REST calls act as. */
@@ -221,6 +222,7 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
   return {
     dataSource,
     sales,
+    inventory,
     reviewFlags,
     businessId,
     userId,

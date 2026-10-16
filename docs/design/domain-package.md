@@ -148,8 +148,27 @@ Done so far (`inventory/stock-rules.ts`):
   refuses to edit a sold or retired unit, as the till did; the till now checks a renamed
   number's shape and checks a new number business-wide when a product's units are set.
 
-Still to do in this slice: sale, void, refund and restock deltas; effective stock and
-low / out of stock; the till's removal plans and variant signatures; the stock reports;
+- Low and out of stock: `productStockStatus` (a product with variants is out when they hold
+  nothing and low once one variant is out or low by its own thresholds; otherwise
+  `stockStatus` on its own level) and its SQL form `stockStatusSql` /
+  `productStockStatusSql`, which the server's `stockStatusExpr` and the till's
+  `STOCK_STATUS_EXPR` are built from. Used by the inventory and product stats, the stock
+  filters, the inventory list, the reorder alerts and the daily low-stock job on both sides;
+  each product now carries `stockStatus`, which the product list and page show. Before,
+  the stats and filters ignored variants, the till's reorder banner looked at variants, and
+  the server's list and alerts read raw level rows (one row per variant, a serialized
+  product always at 0, the reorder point ignored). The server's `/inventory` list and
+  `/inventory/alerts` are now one row per product, as the till's.
+- `suggestedReorderQuantity` (order up to twice the target, at least one): the server's
+  alerts used `threshold − stock`, the till twice the target. Alerts now carry `target`
+  (the sum of the variants' targets for a product with variants). Reorder suggestions skip
+  inactive products on the till too, as the server did.
+
+- The server's product detail now loads variants and sums their stock on the variant rows,
+  not the `has_variants` flag, as the list and the till do.
+
+Still to do in this slice: sale, void, refund and restock deltas; the till's removal plans
+and variant signatures; the stock reports;
 the variant check on a restock's serial units (neither the server's restock nor the
 till's add path checks it); which serial status changes a synced unit may make. The opening movements a variant product records still differ in
 shape (REST: one OPENING_STOCK per variant from 0; sync and the till: product-level

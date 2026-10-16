@@ -8,6 +8,7 @@ import {
   decideStockAdjustment,
   REORDER_WINDOW_DAYS,
   settleRestock,
+  suggestedReorderQuantity,
   toWholeXaf,
   type StockAdjustmentRejection,
   type StockAdjustmentTargetRejection,
@@ -32,7 +33,14 @@ import type {
   ThresholdInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
-import { COST_EXPR, STOCK_EXPR, effectiveStock, recordStockMovement } from './stock-ledger'
+import {
+  COST_EXPR,
+  STOCK_EXPR,
+  STOCK_STATUS_EXPR,
+  effectiveStock,
+  recordStockMovement,
+  stockStatusWhere,
+} from './stock-ledger'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 import type { ProductsService } from './products.service'
@@ -77,6 +85,7 @@ interface InventoryRow {
   low_stock_threshold: number | null
   reorder_point: number | null
   effective_stock: number | null
+  stock_status: 'OUT' | 'LOW' | 'IN'
   category_name: string | null
   unit_abbr: string | null
   last_restock_at: string | null
@@ -87,7 +96,7 @@ const INV_FROM = `products p
    LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id
    LEFT JOIN inventory_levels il ON il.product_id = p.id AND il.variant_id IS NULL`
 const INV_COLS = `p.id, p.name, p.sku, p.image_url, ${COST_EXPR} AS cost_price, p.currency, p.low_stock_threshold, p.reorder_point,
-   ${STOCK_EXPR} AS effective_stock, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
+   ${STOCK_EXPR} AS effective_stock, ${STOCK_STATUS_EXPR} AS stock_status, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
 const INV_THRESHOLD = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
 
 /** The till's wording for a refused adjustment (@biztrack/domain codes). */
@@ -136,11 +145,7 @@ export class InventoryService {
       params.push(query.categoryId)
     }
     if (query.stockStatus && query.stockStatus !== 'all') {
-      if (query.stockStatus === 'out') where += ` AND ${STOCK_EXPR} <= 0`
-      else if (query.stockStatus === 'low')
-        where += ` AND ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}`
-      else if (query.stockStatus === 'in')
-        where += ` AND ${STOCK_EXPR} > 0 AND (${INV_THRESHOLD} = 0 OR ${STOCK_EXPR} > ${INV_THRESHOLD})`
+      where += ` AND ${stockStatusWhere(query.stockStatus)}`
     }
 
     const { rows, ...meta } = paginateRows<InventoryRow>(
@@ -175,8 +180,8 @@ export class InventoryService {
          COUNT(*) AS trackedSkus,
          COALESCE(SUM(${STOCK_EXPR}), 0) AS unitsOnHand,
          COALESCE(SUM(COALESCE(${COST_EXPR}, 0) * ${STOCK_EXPR}), 0) AS stockValueCost,
-         COALESCE(SUM(CASE WHEN ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD} THEN 1 ELSE 0 END), 0) AS lowStock,
-         COALESCE(SUM(CASE WHEN ${STOCK_EXPR} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+         COALESCE(SUM(CASE WHEN ${STOCK_STATUS_EXPR} = 'LOW' THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN ${STOCK_STATUS_EXPR} = 'OUT' THEN 1 ELSE 0 END), 0) AS outOfStock
        FROM products p WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1`,
       [businessId],
     )
@@ -193,12 +198,9 @@ export class InventoryService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const hasVariants = `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)`
-    // A single variant is low when it's out of stock, or at/below its own threshold (when set).
-    const variantLow = `pv.stock_quantity <= 0 OR (COALESCE(pv.low_stock_threshold, 0) > 0 AND pv.stock_quantity <= COALESCE(pv.low_stock_threshold, 0))`
-    const anyVariantLow = `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0 AND (${variantLow}))`
     // Displayed reorder point: sum of the variants' thresholds for variant products, else the product-level threshold.
     const targetExpr = `CASE WHEN ${hasVariants}
-        THEN (SELECT COALESCE(SUM(COALESCE(pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+        THEN (SELECT COALESCE(SUM(COALESCE(pv.reorder_point, pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
         ELSE ${INV_THRESHOLD} END`
     // Last supplier who restocked this product (grouping key for À-commander, BIZ-4.5).
     const lastSupplier = (col: string) =>
@@ -222,11 +224,8 @@ export class InventoryService {
               p.created_at, (${hasVariants}) AS has_variants,
               ${lastSupplier('supplier_id')} AS supplier_id, ${lastSupplier('supplier_name')} AS supplier_name
        FROM products p
-       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1
-         AND (
-           (${hasVariants} AND ${anyVariantLow})
-           OR (NOT ${hasVariants} AND (${STOCK_EXPR} <= 0 OR (${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD})))
-         )
+       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.is_active = 1 AND p.track_inventory = 1
+         AND ${STOCK_STATUS_EXPR} <> 'IN'
        ORDER BY ${STOCK_EXPR} ASC`,
       [businessId],
     )
@@ -253,9 +252,8 @@ export class InventoryService {
     return rows.map((r) => {
       const stock = Math.max(0, r.stock ?? 0)
       const target = r.target ?? 0
-      // Restock to a par level of 2× the reorder point so the order actually clears
-      // the alert (restocking to exactly the reorder point leaves it still flagged).
-      const suggestedQty = target > 0 ? Math.max(target * 2 - stock, 1) : 1
+      // How much to order (@biztrack/domain suggestedReorderQuantity), as the server.
+      const suggestedQty = suggestedReorderQuantity({ stock, target })
       const v = velocities.get(r.id)
       return {
         productId: r.id,
@@ -1204,9 +1202,8 @@ export class InventoryService {
 
 function toInventoryItem(r: InventoryRow): LocalInventoryItem {
   const stock = Math.max(0, r.effective_stock ?? 0)
-  const threshold = r.reorder_point ?? r.low_stock_threshold ?? 0
-  const stockStatus: LocalInventoryItem['stockStatus'] =
-    stock <= 0 ? 'out' : threshold > 0 && stock <= threshold ? 'low' : 'in'
+  // Worked out in the query from @biztrack/domain's rule (STOCK_STATUS_EXPR).
+  const stockStatus = r.stock_status.toLowerCase() as LocalInventoryItem['stockStatus']
   return {
     productId: r.id,
     name: r.name,

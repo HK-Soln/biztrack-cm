@@ -34,10 +34,12 @@ import {
   REORDER_WINDOW_DAYS,
   serialBatch,
   settleRestock,
+  suggestedReorderQuantity,
   toWholeXaf,
   type StockAdjustmentRejection,
   type StockAdjustmentTargetRejection,
   type StockPoint,
+  type StockStatus,
   type VelocityResult,
 } from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
@@ -72,10 +74,27 @@ import type { InventoryLowStockAlertDigest } from '../constants/inventory.consta
 import {
   stockExpr,
   costExpr,
-  thresholdExpr,
+  reorderTargetExpr,
+  stockStatusExpr,
+  stockStatusWhere,
   round2,
   type InventoryStats,
 } from '@/common/stats/stock-stats'
+
+/** One product that needs reordering, as loadAlertRows reads it. */
+interface AlertRow {
+  businessId: string
+  productId: string
+  productName: string | null
+  sku: string | null
+  imageUrl: string | null
+  categoryName: string | null
+  sellingPrice: number | null
+  quantity: number
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+  target: number
+}
 
 const MS_PER_DAY = 86400000
 
@@ -243,69 +262,100 @@ export class InventoryService {
     this.logger.setContext('InventoryService')
   }
 
+  /**
+   * Tracked products with their stock (one row per product, as the till's inventory list):
+   * the effective stock (serial count, sum of variants, or the product's own level) and where
+   * it stands by @biztrack/domain's productStockStatus.
+   */
   async findAll(
     businessId: string,
     filters?: InventoryQuery & { stockStatus?: 'in' | 'low' | 'out' },
   ) {
     try {
-      const query = this.inventoryLevelsRepo
-        .createQueryBuilder('inventory')
-        .innerJoinAndSelect('inventory.product', 'product')
-        .leftJoinAndSelect('product.category', 'category')
-        .leftJoinAndSelect('product.unitOfMeasure', 'unitOfMeasure')
-        .where('inventory.business_id = :businessId', { businessId })
-        .andWhere('product.deleted_at IS NULL')
-        .andWhere('product.track_inventory = true')
-
+      const STOCK = stockExpr('p')
+      const STATUS = stockStatusExpr('p')
+      const params: unknown[] = [businessId]
+      const where = ['p.business_id = $1', 'p.deleted_at IS NULL', 'p.track_inventory = true']
       if (filters?.categoryId) {
-        query.andWhere('product.category_id = :categoryId', { categoryId: filters.categoryId })
+        params.push(filters.categoryId)
+        where.push(`p.category_id = $${params.length}`)
       }
-      if (filters?.lowStockOnly) {
-        query.andWhere('inventory.low_stock_threshold IS NOT NULL')
-        query.andWhere('inventory.quantity <= inventory.low_stock_threshold')
+      if (filters?.lowStockOnly) where.push(`${STATUS} <> 'IN'`)
+      if (
+        filters?.stockStatus === 'in' ||
+        filters?.stockStatus === 'low' ||
+        filters?.stockStatus === 'out'
+      ) {
+        where.push(stockStatusWhere(filters.stockStatus))
       }
-      // Stock-status filter (matches how the list derives status from the row).
-      if (filters?.stockStatus === 'out') {
-        query.andWhere('inventory.quantity <= 0')
-      } else if (filters?.stockStatus === 'low') {
-        query.andWhere('inventory.low_stock_threshold IS NOT NULL')
-        query.andWhere(
-          'inventory.quantity > 0 AND inventory.quantity <= inventory.low_stock_threshold',
-        )
-      } else if (filters?.stockStatus === 'in') {
-        query.andWhere('inventory.quantity > 0')
-        query.andWhere(
-          '(inventory.low_stock_threshold IS NULL OR inventory.quantity > inventory.low_stock_threshold)',
-        )
+      const search = filters?.search?.trim()
+      if (search) {
+        params.push(`%${search}%`)
+        const n = params.length
+        where.push(`(p.name ILIKE $${n} OR p.sku ILIKE $${n} OR p.barcode ILIKE $${n})`)
       }
 
       const sort = this.resolveSort(filters?.sortBy)
-      const sortOrder = filters?.sortOrder ?? 'ASC'
+      const sortOrder = filters?.sortOrder === 'DESC' ? 'DESC' : 'ASC'
       const page = Math.max(filters?.page ?? 1, 1)
       const limit = Math.min(Math.max(filters?.limit ?? 20, 1), 100)
       const skip = (page - 1) * limit
 
-      query.orderBy(sort, sortOrder).skip(skip).take(limit)
-
-      const [rows, total] = await query.getManyAndCount()
+      const from = `FROM products p
+        LEFT JOIN product_categories c ON c.id = p.category_id
+        LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id
+        LEFT JOIN inventory_levels il
+          ON il.product_id = p.id AND il.variant_id IS NULL AND il.deleted_at IS NULL
+        WHERE ${where.join(' AND ')}`
+      const [rows, counted] = await Promise.all([
+        this.inventoryLevelsRepo.manager.query(
+          `SELECT p.id AS "productId", p.name AS "productName", p.sku, p.barcode,
+                  p.image_url AS "imageUrl", c.name AS "categoryName",
+                  u.abbreviation AS "unitAbbreviation", (${STOCK})::float8 AS quantity,
+                  ${STATUS} AS "stockStatus", il.low_stock_threshold AS "lowStockThreshold",
+                  il.reorder_point AS "reorderPoint", il.last_restock_at AS "lastRestockAt"
+           ${from}
+           ORDER BY ${sort} ${sortOrder}, p.id ASC
+           LIMIT ${limit} OFFSET ${skip}`,
+          params,
+        ) as Promise<
+          Array<{
+            productId: string
+            productName: string
+            sku: string | null
+            barcode: string | null
+            imageUrl: string | null
+            categoryName: string | null
+            unitAbbreviation: string | null
+            quantity: number
+            stockStatus: StockStatus
+            lowStockThreshold: number | null
+            reorderPoint: number | null
+            lastRestockAt: Date | null
+          }>
+        >,
+        this.inventoryLevelsRepo.manager.query(
+          `SELECT COUNT(*)::int AS n ${from}`,
+          params,
+        ) as Promise<Array<{ n: number }>>,
+      ])
+      const total = Number(counted[0]?.n ?? 0)
       const primaryImageUrls = await this.loadPrimaryImageUrls(rows.map((row) => row.productId))
 
       return {
         data: rows.map((row) => ({
           productId: row.productId,
-          productName: row.product?.name ?? null,
-          sku: row.product?.sku ?? null,
-          barcode: row.product?.barcode ?? null,
-          primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.product?.imageUrl ?? null,
-          categoryName: row.product?.category?.name ?? null,
-          unitAbbreviation: row.product?.unitOfMeasure?.abbreviation ?? null,
-          quantity: row.quantity,
-          lowStockThreshold: row.lowStockThreshold,
-          reorderPoint: row.reorderPoint,
-          isLowStock:
-            row.lowStockThreshold !== null && row.lowStockThreshold !== undefined
-              ? row.quantity <= row.lowStockThreshold
-              : false,
+          productName: row.productName ?? null,
+          sku: row.sku ?? null,
+          barcode: row.barcode ?? null,
+          primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.imageUrl ?? null,
+          categoryName: row.categoryName ?? null,
+          unitAbbreviation: row.unitAbbreviation ?? null,
+          quantity: Number(row.quantity ?? 0),
+          lowStockThreshold: row.lowStockThreshold == null ? null : Number(row.lowStockThreshold),
+          reorderPoint: row.reorderPoint == null ? null : Number(row.reorderPoint),
+          stockStatus: row.stockStatus,
+          isLowStock: row.stockStatus !== 'IN',
           lastRestockAt: row.lastRestockAt,
         })),
         total,
@@ -323,15 +373,15 @@ export class InventoryService {
     try {
       const STOCK = stockExpr('p')
       const COST = costExpr('p')
-      const THR = thresholdExpr('p')
+      const STATUS = stockStatusExpr('p')
       const rows: Array<Record<string, string | number>> =
         await this.inventoryLevelsRepo.manager.query(
           `SELECT
            COUNT(*)::int AS "trackedSkus",
            COALESCE(SUM(${STOCK}), 0) AS "unitsOnHand",
            COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "stockValueCost",
-           COALESCE(SUM(CASE WHEN ${STOCK} > 0 AND ${THR} > 0 AND ${STOCK} <= ${THR} THEN 1 ELSE 0 END), 0)::int AS "lowStock",
-           COALESCE(SUM(CASE WHEN ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
+           COALESCE(SUM(CASE WHEN ${STATUS} = 'LOW' THEN 1 ELSE 0 END), 0)::int AS "lowStock",
+           COALESCE(SUM(CASE WHEN ${STATUS} = 'OUT' THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
          FROM products p
          WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true`,
           [businessId],
@@ -350,21 +400,19 @@ export class InventoryService {
   }
 
   private resolveSort(field?: string): string {
-    // Entity PROPERTY paths (not raw columns): findAll joins product/category + paginates,
-    // so TypeORM resolves orderBy against entity metadata — raw columns
-    // (inventory.low_stock_threshold) break it with a databaseName error.
+    // Columns of findAll's query (a whitelist: the value goes into ORDER BY).
     const sortMap: Record<string, string> = {
-      productName: 'product.name',
-      sku: 'product.sku',
-      barcode: 'product.barcode',
-      categoryName: 'category.name',
-      quantity: 'inventory.quantity',
-      lowStockThreshold: 'inventory.lowStockThreshold',
-      reorderPoint: 'inventory.reorderPoint',
-      lastRestockAt: 'inventory.lastRestockAt',
+      productName: 'p.name',
+      sku: 'p.sku',
+      barcode: 'p.barcode',
+      categoryName: 'c.name',
+      quantity: 'quantity',
+      lowStockThreshold: 'il.low_stock_threshold',
+      reorderPoint: 'il.reorder_point',
+      lastRestockAt: 'il.last_restock_at',
     }
 
-    return sortMap[field ?? ''] ?? 'product.name'
+    return sortMap[field ?? ''] ?? 'p.name'
   }
 
   async findOne(productId: string, businessId: string) {
@@ -757,17 +805,18 @@ export class InventoryService {
 
   async getAlerts(businessId: string, query: InventoryAlertsQuery) {
     try {
-      const qb = this.createAlertsQueryBuilder(businessId)
       const sort = this.resolveAlertSort(query.sortBy)
       // Default: lowest stock first (most urgent). Named sorts honour the requested order.
-      const sortOrder = query.sortBy ? (query.sortOrder ?? 'ASC') : 'ASC'
+      const sortOrder = query.sortBy && query.sortOrder === 'DESC' ? 'DESC' : 'ASC'
       const page = Math.max(query.page ?? 1, 1)
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
       const skip = (page - 1) * limit
 
-      qb.orderBy(sort, sortOrder).skip(skip).take(limit)
-
-      const [rows, total] = await qb.getManyAndCount()
+      const { rows, total } = await this.loadAlertRows(businessId, {
+        orderBy: `${sort} ${sortOrder}`,
+        limit,
+        offset: skip,
+      })
       return {
         data: await this.mapAlertRows(rows),
         total,
@@ -781,17 +830,12 @@ export class InventoryService {
   }
 
   async findBusinessIdsWithLowStockAlerts(): Promise<string[]> {
-    const rows = await this.inventoryLevelsRepo
-      .createQueryBuilder('inventory')
-      .select('inventory.business_id', 'businessId')
-      .innerJoin('inventory.product', 'product')
-      .where('inventory.low_stock_threshold IS NOT NULL')
-      .andWhere('inventory.quantity <= inventory.low_stock_threshold')
-      .andWhere('product.deleted_at IS NULL')
-      .andWhere('product.is_active = true')
-      .andWhere('product.track_inventory = true')
-      .distinct(true)
-      .getRawMany<{ businessId: string }>()
+    // Products that need reordering (@biztrack/domain productStockStatus is not IN).
+    const rows = (await this.inventoryLevelsRepo.manager.query(
+      `SELECT DISTINCT p.business_id AS "businessId" FROM products p
+       WHERE p.deleted_at IS NULL AND p.is_active = true AND p.track_inventory = true
+         AND ${stockStatusExpr('p')} <> 'IN'`,
+    )) as Array<{ businessId: string }>
 
     return rows.map((row) => row.businessId)
   }
@@ -806,9 +850,9 @@ export class InventoryService {
       return null
     }
 
-    const rows = await this.createAlertsQueryBuilder(businessId)
-      .orderBy(this.resolveAlertSort(), 'ASC')
-      .getMany()
+    const { rows } = await this.loadAlertRows(businessId, {
+      orderBy: `${this.resolveAlertSort()} ASC`,
+    })
     const alerts = await this.mapAlertRows(rows)
 
     if (alerts.length === 0) {
@@ -1174,37 +1218,66 @@ export class InventoryService {
   }
 
   private resolveAlertSort(field?: string) {
-    // Entity PROPERTY paths only (not raw columns / arithmetic expressions): orderBy on a
-    // raw column (inventory.low_stock_threshold) or an expression breaks TypeORM's
-    // metadata resolution → databaseName error. `shortfall` (biggest gap first) is
-    // approximated by lowest quantity first — every alert row already has quantity <=
-    // threshold, so least stock ≈ most urgent.
+    // Columns of the loadAlertRows query (a whitelist: the value goes into ORDER BY).
+    // `shortfall` (biggest gap first) is approximated by lowest stock first.
     const sortMap: Record<string, string> = {
-      productName: 'product.name',
-      sku: 'product.sku',
-      currentQuantity: 'inventory.quantity',
-      lowStockThreshold: 'inventory.lowStockThreshold',
-      reorderPoint: 'inventory.reorderPoint',
-      shortfall: 'inventory.quantity',
+      productName: 'p.name',
+      sku: 'p.sku',
+      currentQuantity: 'quantity',
+      lowStockThreshold: 'il.low_stock_threshold',
+      reorderPoint: 'il.reorder_point',
+      shortfall: 'quantity',
     }
 
-    return sortMap[field ?? ''] ?? 'inventory.quantity'
+    return sortMap[field ?? ''] ?? 'quantity'
   }
 
-  private createAlertsQueryBuilder(businessId: string) {
-    return this.inventoryLevelsRepo
-      .createQueryBuilder('inventory')
-      .innerJoinAndSelect('inventory.product', 'product')
-      .leftJoinAndSelect('product.category', 'category')
-      .where('inventory.business_id = :businessId', { businessId })
-      .andWhere('product.deleted_at IS NULL')
-      .andWhere('product.is_active = true')
-      .andWhere('product.track_inventory = true')
-      .andWhere('inventory.low_stock_threshold IS NOT NULL')
-      .andWhere('inventory.quantity <= inventory.low_stock_threshold')
+  /**
+   * Active tracked products that need reordering: their stock is out or low by
+   * @biztrack/domain productStockStatus (a product with variants once one variant is), one row
+   * per product, as the till's reorder suggestions.
+   */
+  private async loadAlertRows(
+    businessId: string,
+    page: { orderBy: string; limit?: number; offset?: number },
+  ): Promise<{ rows: AlertRow[]; total: number }> {
+    const from = `FROM products p
+      LEFT JOIN product_categories c ON c.id = p.category_id
+      LEFT JOIN inventory_levels il
+        ON il.product_id = p.id AND il.variant_id IS NULL AND il.deleted_at IS NULL
+      WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.is_active = true
+        AND p.track_inventory = true AND ${stockStatusExpr('p')} <> 'IN'`
+    const window =
+      page.limit != null ? `LIMIT ${Number(page.limit)} OFFSET ${Number(page.offset ?? 0)}` : ''
+    const mgr = this.inventoryLevelsRepo.manager
+    const [rows, counted] = await Promise.all([
+      mgr.query(
+        `SELECT p.business_id AS "businessId", p.id AS "productId", p.name AS "productName",
+                p.sku, p.image_url AS "imageUrl", c.name AS "categoryName",
+                p.price AS "sellingPrice", (${stockExpr('p')})::float8 AS quantity,
+                il.low_stock_threshold AS "lowStockThreshold", il.reorder_point AS "reorderPoint",
+                (${reorderTargetExpr('p')})::float8 AS target
+         ${from}
+         ORDER BY ${page.orderBy}, p.id ASC
+         ${window}`,
+        [businessId],
+      ) as Promise<AlertRow[]>,
+      mgr.query(`SELECT COUNT(*)::int AS n ${from}`, [businessId]) as Promise<Array<{ n: number }>>,
+    ])
+    return {
+      rows: rows.map((r) => ({
+        ...r,
+        quantity: Number(r.quantity ?? 0),
+        target: Number(r.target ?? 0),
+        sellingPrice: r.sellingPrice == null ? null : Number(r.sellingPrice),
+        lowStockThreshold: r.lowStockThreshold == null ? null : Number(r.lowStockThreshold),
+        reorderPoint: r.reorderPoint == null ? null : Number(r.reorderPoint),
+      })),
+      total: Number(counted[0]?.n ?? 0),
+    }
   }
 
-  private async mapAlertRows(rows: InventoryLevel[]): Promise<InventoryAlert[]> {
+  private async mapAlertRows(rows: AlertRow[]): Promise<InventoryAlert[]> {
     const productIds = rows.map((row) => row.productId)
     const businessId = rows[0]?.businessId
     const [primaryImageUrls, velocities, suppliers] = await Promise.all([
@@ -1229,21 +1302,20 @@ export class InventoryService {
       const s = suppliers.get(row.productId)
       return {
         productId: row.productId,
-        productName: row.product?.name ?? null,
-        sku: row.product?.sku ?? null,
-        primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.product?.imageUrl ?? null,
-        categoryName: row.product?.category?.name ?? null,
+        productName: row.productName ?? null,
+        sku: row.sku ?? null,
+        primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.imageUrl ?? null,
+        categoryName: row.categoryName ?? null,
         currentQuantity: row.quantity,
-        lowStockThreshold: row.lowStockThreshold ?? null,
-        reorderPoint: row.reorderPoint ?? null,
-        shortfall:
-          row.lowStockThreshold !== null && row.lowStockThreshold !== undefined
-            ? row.lowStockThreshold - row.quantity
-            : 0,
+        lowStockThreshold: row.lowStockThreshold,
+        reorderPoint: row.reorderPoint,
+        target: row.target,
+        // How much to order (@biztrack/domain suggestedReorderQuantity), as the till.
+        shortfall: suggestedReorderQuantity({ stock: row.quantity, target: row.target }),
         velocity: v?.velocity ?? null,
         daysCover: v?.daysCover ?? null,
         stockoutDays: v?.stockoutDays ?? null,
-        sellingPrice: row.product?.sellingPrice ?? null,
+        sellingPrice: row.sellingPrice,
         supplierId: s?.supplierId ?? null,
         supplierName: s?.supplierName ?? null,
         supplierPhone: s?.supplierPhone ?? null,
@@ -1301,7 +1373,7 @@ export class InventoryService {
    * Variant products are skipped: their stock lives per-variant, so a product-level
    * timeline would misread as empty. */
   private async computeAlertVelocities(
-    rows: InventoryLevel[],
+    rows: ReadonlyArray<{ businessId: string; productId: string; quantity: number }>,
   ): Promise<Map<string, VelocityResult>> {
     const out = new Map<string, VelocityResult>()
     const first = rows[0]

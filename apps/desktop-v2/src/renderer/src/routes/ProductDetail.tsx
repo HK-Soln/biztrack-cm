@@ -1,4 +1,4 @@
-import { marginPercent, stockStatus } from '@biztrack/domain'
+import { marginPercent } from '@biztrack/domain'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -22,13 +22,8 @@ import { useStaffMay } from '@/lib/staff'
 const MOVE_PREVIEW = 5
 
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
-  if (!p.trackInventory) return 'none'
-  // @biztrack/domain's rule, the one the stock filters use.
-  return stockStatus({
-    stock: p.currentStock,
-    reorderPoint: p.reorderPoint,
-    lowStockThreshold: p.lowStockThreshold,
-  }).toLowerCase() as 'in' | 'low' | 'out'
+  // Worked out where the product is loaded, by @biztrack/domain's rule (variants included).
+  return p.trackInventory ? (p.stockStatus ?? 'out') : 'none'
 }
 
 export function ProductDetail() {

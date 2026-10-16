@@ -1,4 +1,3 @@
-import { stockStatus } from '@biztrack/domain'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -41,13 +40,8 @@ function htmlEsc(s: string): string {
 
 /** Derived stock state for the status pill (mirrors the API/list-filter logic). */
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
-  if (!p.trackInventory) return 'none'
-  // @biztrack/domain's rule, the one the stock filters use.
-  return stockStatus({
-    stock: p.currentStock,
-    reorderPoint: p.reorderPoint,
-    lowStockThreshold: p.lowStockThreshold,
-  }).toLowerCase() as 'in' | 'low' | 'out'
+  // Worked out where the product is loaded, by @biztrack/domain's rule (variants included).
+  return p.trackInventory ? (p.stockStatus ?? 'out') : 'none'
 }
 
 type StatusFilter = 'all' | 'active' | 'inactive'

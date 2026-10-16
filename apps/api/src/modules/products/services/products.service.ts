@@ -6,7 +6,9 @@ import {
   newProductStockLevel,
   productAverageCost,
   productDisplayPrice,
+  productStockStatus,
   stockLevelOnEdit,
+  type StockStatus,
 } from '@biztrack/domain'
 import { removeProduct } from '../catalog-removal'
 import { Inject, Injectable } from '@nestjs/common'
@@ -60,8 +62,9 @@ import {
   costExpr,
   priceExpr,
   displayPriceExpr,
-  thresholdExpr,
   round2,
+  stockStatusExpr,
+  stockStatusWhere,
   type ProductStats,
 } from '@/common/stats/stock-stats'
 
@@ -355,20 +358,14 @@ export class ProductsService {
       }
 
       // Effective-stock status filter (variant/serial-aware), mirroring the desktop.
-      if (query.stockStatus) {
-        const stock = stockExpr('product')
-        const thr = thresholdExpr('product')
-        if (query.stockStatus === 'out') {
-          qb.andWhere(`product.track_inventory = true AND ${stock} <= 0`)
-        } else if (query.stockStatus === 'low') {
-          qb.andWhere(
-            `product.track_inventory = true AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`,
-          )
-        } else if (query.stockStatus === 'in') {
-          qb.andWhere(
-            `product.track_inventory = true AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`,
-          )
-        }
+      if (
+        query.stockStatus === 'out' ||
+        query.stockStatus === 'low' ||
+        query.stockStatus === 'in'
+      ) {
+        qb.andWhere(
+          `product.track_inventory = true AND ${stockStatusWhere(query.stockStatus, 'product')}`,
+        )
       }
 
       // Apply search
@@ -569,9 +566,8 @@ export class ProductsService {
           where: { productId: id },
           order: { sortOrder: 'ASC', createdAt: 'ASC' },
         }),
-        product.hasVariants
-          ? this.variantsService.listVariantsForProduct(businessId, id)
-          : Promise.resolve(undefined),
+        // Variant rows decide, not the has_variants flag, which can go stale.
+        this.variantsService.listVariantsForProduct(businessId, id),
         isComposite
           ? this.bundleComponentsRepo.find({
               where: { businessId, bundleProductId: id, deletedAt: IsNull() },
@@ -624,27 +620,44 @@ export class ProductsService {
       // the SUM of variant stock, the displayed price is the LOWEST variant price ("from"), and
       // the cost is the AVERAGE variant cost.
       const activeVariants = variants ?? []
+      const hasVariantRows = activeVariants.length > 0
       const displayPrice = productDisplayPrice(product, activeVariants)
       const avgCost = productAverageCost(product, activeVariants)
 
       const currentStock = product.isSerialized
         ? inStockSerialCount
-        : product.hasVariants
+        : hasVariantRows
           ? activeVariants.reduce((sum, v) => sum + (v.currentStock ?? 0), 0)
           : product.trackInventory
             ? (inventoryLevel?.quantity ?? 0)
             : null
 
+      // Where the stock stands, by the same rule as the list (@biztrack/domain).
+      const stockStatus =
+        currentStock == null
+          ? null
+          : productStockStatus({
+              stock: currentStock,
+              reorderPoint: inventoryLevel?.reorderPoint,
+              lowStockThreshold: inventoryLevel?.lowStockThreshold,
+              variants: activeVariants.map((v) => ({
+                stock: v.currentStock ?? 0,
+                reorderPoint: v.reorderPoint,
+                lowStockThreshold: v.lowStockThreshold,
+              })),
+            })
+
       return {
         ...product,
         currentStock,
-        effectiveSellingPrice: product.hasVariants ? displayPrice : product.sellingPrice,
-        effectiveCostPrice: product.hasVariants ? avgCost : (product.costPrice ?? null),
+        stockStatus,
+        effectiveSellingPrice: hasVariantRows ? displayPrice : product.sellingPrice,
+        effectiveCostPrice: hasVariantRows ? avgCost : (product.costPrice ?? null),
         lowStockThreshold: inventoryLevel?.lowStockThreshold ?? null,
         reorderPoint: inventoryLevel?.reorderPoint ?? null,
         primaryImageUrl: images[0]?.url ?? product.imageUrl ?? null,
         images,
-        variants,
+        variants: hasVariantRows ? variants : undefined,
         bundleComponents,
         serialUnits,
       }
@@ -1037,7 +1050,7 @@ export class ProductsService {
       const STOCK = stockExpr('p')
       const COST = costExpr('p')
       const PRICE = priceExpr('p')
-      const THR = thresholdExpr('p')
+      const STATUS = stockStatusExpr('p')
       const rows: Array<Record<string, string | number>> =
         await this.inventoryLevelsRepo.manager.query(
           `SELECT
@@ -1045,8 +1058,8 @@ export class ProductsService {
            COUNT(DISTINCT p.category_id)::int AS "categories",
            COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "catalogValueCost",
            COALESCE(SUM(${PRICE} * ${STOCK}), 0) AS "retailValue",
-           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} > 0 AND ${THR} > 0 AND ${STOCK} <= ${THR} THEN 1 ELSE 0 END), 0)::int AS "lowStock",
-           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
+           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STATUS} = 'LOW' THEN 1 ELSE 0 END), 0)::int AS "lowStock",
+           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STATUS} = 'OUT' THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
          FROM products p
          WHERE p.business_id = $1 AND p.deleted_at IS NULL`,
           [businessId],
@@ -1089,10 +1102,13 @@ export class ProductsService {
       // displayed "from" price (lowest variant). EXISTS-based, so a stale has_variants
       // flag can't skew it — identical to the desktop's STOCK_EXPR/price.
       this.dataSource.query(
-        `SELECT p.id, (${stockExpr('p')})::float8 AS stock, (${displayPriceExpr('p')})::float8 AS price
+        `SELECT p.id, (${stockExpr('p')})::float8 AS stock, (${displayPriceExpr('p')})::float8 AS price,
+                ${stockStatusExpr('p')} AS stock_status
          FROM products p WHERE p.id = ANY($1::uuid[])`,
         [productIds],
-      ) as Promise<Array<{ id: string; stock: number | null; price: number | null }>>,
+      ) as Promise<
+        Array<{ id: string; stock: number | null; price: number | null; stock_status: StockStatus }>
+      >,
     ])
 
     const levelsByProductId = new Map(levels.map((level) => [level.productId, level]))
@@ -1115,6 +1131,7 @@ export class ProductsService {
         variants: undefined,
         // Derived total: serial-count / sum-of-variants / product-level (null for services).
         currentStock: product.trackInventory ? Number(derived?.stock ?? 0) : null,
+        stockStatus: product.trackInventory ? (derived?.stock_status ?? 'OUT') : null,
         // "From" price: lowest variant price for variant products, else the product price.
         effectiveSellingPrice: Number(derived?.price ?? product.sellingPrice),
         lowStockThreshold: inventory?.lowStockThreshold ?? null,

@@ -141,6 +141,7 @@ const makeService = () => {
   return {
     debtsService,
     service,
+    inventoryLevelsRepo,
     inventoryLevelsQb,
     movementsQb,
     productImagesQb,
@@ -302,36 +303,40 @@ describe('InventoryService', () => {
   })
 
   it('uses the first gallery image and falls back to product.imageUrl in alerts', async () => {
-    const { service, inventoryLevelsQb, productImagesQb } = makeService()
-    inventoryLevelsQb.getManyAndCount.mockResolvedValue([
-      [
-        {
-          productId: 'product-1',
-          quantity: 2,
-          lowStockThreshold: 5,
-          reorderPoint: 8,
-          product: {
-            name: 'Water Bottle',
-            sku: 'WATER-1',
-            imageUrl: 'https://fallback.example/product-1.png',
-            category: { name: 'Drinks' },
-          },
-        },
-        {
-          productId: 'product-2',
-          quantity: 1,
-          lowStockThreshold: 3,
-          reorderPoint: 5,
-          product: {
-            name: 'Rice',
-            sku: 'RICE-1',
-            imageUrl: 'https://fallback.example/product-2.png',
-            category: { name: 'Food' },
-          },
-        },
-      ],
-      2,
-    ])
+    const { service, inventoryLevelsRepo, productImagesQb } = makeService()
+    // The alert rows are one per product (loadAlertRows), then their count; the velocity
+    // and supplier look-ups find nothing.
+    const alertRows = [
+      {
+        businessId: 'business-1',
+        productId: 'product-1',
+        productName: 'Water Bottle',
+        sku: 'WATER-1',
+        imageUrl: 'https://fallback.example/product-1.png',
+        categoryName: 'Drinks',
+        sellingPrice: 500,
+        quantity: 2,
+        lowStockThreshold: 5,
+        reorderPoint: 8,
+        target: 8,
+      },
+      {
+        businessId: 'business-1',
+        productId: 'product-2',
+        productName: 'Rice',
+        sku: 'RICE-1',
+        imageUrl: 'https://fallback.example/product-2.png',
+        categoryName: 'Food',
+        sellingPrice: 900,
+        quantity: 1,
+        lowStockThreshold: 3,
+        reorderPoint: 5,
+        target: 5,
+      },
+    ]
+    inventoryLevelsRepo.manager.query.mockImplementation(async (sql: string) =>
+      sql.includes('COUNT(*)::int AS n') ? [{ n: 2 }] : sql.includes('AS target') ? alertRows : [],
+    )
     productImagesQb.getMany.mockResolvedValue([
       { productId: 'product-1', url: 'https://cdn.example/product-1-primary.png' } as ProductImage,
     ])
@@ -342,10 +347,13 @@ describe('InventoryService', () => {
       expect.objectContaining({
         productId: 'product-1',
         primaryImageUrl: 'https://cdn.example/product-1-primary.png',
+        // Up to twice the target (@biztrack/domain suggestedReorderQuantity).
+        shortfall: 14,
       }),
       expect.objectContaining({
         productId: 'product-2',
         primaryImageUrl: 'https://fallback.example/product-2.png',
+        shortfall: 9,
       }),
     ])
     expect(result.totalPages).toBe(1)

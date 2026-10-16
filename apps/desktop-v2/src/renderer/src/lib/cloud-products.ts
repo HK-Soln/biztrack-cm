@@ -104,6 +104,7 @@ interface ApiProduct {
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   currentStock?: number | null
+  stockStatus?: 'OUT' | 'LOW' | 'IN' | null
   category?: { id?: string; name?: string } | null
   unitOfMeasure?: { id?: string; abbreviation?: string | null } | null
   brandId?: string | null
@@ -153,6 +154,8 @@ function toLocalProduct(p: ApiProduct): LocalProduct {
     lowStockThreshold: p.lowStockThreshold ?? null,
     reorderPoint: p.reorderPoint ?? null,
     currentStock: p.currentStock ?? 0,
+    // The server works it out with @biztrack/domain's rule, as the till does.
+    stockStatus: p.stockStatus ? (p.stockStatus.toLowerCase() as 'in' | 'low' | 'out') : null,
     hasVariants: p.hasVariants ?? false,
     categoryName: p.category?.name ?? null,
     brandName: null,

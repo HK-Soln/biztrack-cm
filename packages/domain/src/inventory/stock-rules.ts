@@ -5,6 +5,7 @@
 // adjustment is never one the server works out differently.
 // ---------------------------------------------------------------------------
 
+import { stockStatus, type StockStatus } from '../catalog/product-pricing'
 import { roundQuantity } from '../sales/sale-pricing'
 
 export type StockAdjustmentKind = 'ADD' | 'REMOVE' | 'SET'
@@ -179,4 +180,58 @@ export function stockLevelOnEdit(input: {
 }): 'CREATE' | 'KEEP' | 'REMOVE' | 'NONE' {
   if (input.trackInventory) return input.hasLevel ? 'KEEP' : 'CREATE'
   return input.hasLevel ? 'REMOVE' : 'NONE'
+}
+
+export interface StockLevelReading {
+  stock: number
+  reorderPoint?: number | null
+  lowStockThreshold?: number | null
+}
+
+/**
+ * Where a product's stock stands (OUT, LOW or IN). A product without variants is judged on
+ * its own level (`stockStatus`: out at or below zero, low at or below its reorder point, or
+ * else its low-stock threshold). A product with variants is out when its variants hold
+ * nothing in total, and low when any one variant is out or low by its own thresholds, so
+ * an empty size shows before the whole product runs out.
+ */
+export function productStockStatus(
+  input: StockLevelReading & { variants?: readonly StockLevelReading[] | null },
+): StockStatus {
+  const variants = input.variants ?? []
+  if (variants.length === 0) return stockStatus(input)
+  const total = variants.reduce((sum, v) => sum + v.stock, 0)
+  if (total <= 0) return 'OUT'
+  return variants.some((v) => stockStatus(v) !== 'IN') ? 'LOW' : 'IN'
+}
+
+/**
+ * `stockStatus` as a SQL CASE expression ('OUT' | 'LOW' | 'IN'), for lists, filters and
+ * counts that must be done in the database. The arguments are SQL expressions for the
+ * level's stock, reorder point and low-stock threshold; the same text runs on Postgres and
+ * SQLite.
+ */
+export function stockStatusSql(
+  stock: string,
+  reorderPoint: string,
+  lowStockThreshold: string,
+): string {
+  const threshold = `COALESCE(${reorderPoint}, ${lowStockThreshold}, 0)`
+  return `(CASE WHEN ${stock} <= 0 THEN 'OUT' WHEN ${threshold} > 0 AND ${stock} <= ${threshold} THEN 'LOW' ELSE 'IN' END)`
+}
+
+/**
+ * `productStockStatus` as a SQL CASE expression. `hasVariants` is a boolean SQL expression
+ * (whether live variant rows exist), `stock` the product's effective stock (the variants'
+ * total for a variant product), and `anyVariantShort` a boolean SQL expression for "some
+ * live variant's `stockStatusSql` is not 'IN'".
+ */
+export function productStockStatusSql(e: {
+  stock: string
+  reorderPoint: string
+  lowStockThreshold: string
+  hasVariants: string
+  anyVariantShort: string
+}): string {
+  return `(CASE WHEN ${e.hasVariants} THEN (CASE WHEN ${e.stock} <= 0 THEN 'OUT' WHEN ${e.anyVariantShort} THEN 'LOW' ELSE 'IN' END) ELSE ${stockStatusSql(e.stock, e.reorderPoint, e.lowStockThreshold)} END)`
 }

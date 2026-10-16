@@ -1037,6 +1037,9 @@ export interface LocalProduct {
   reorderPoint: number | null
   /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
   currentStock: number
+  /** Where the stock stands (@biztrack/domain productStockStatus: a product with variants is
+   * low once one variant is out or low); null when the product does not track stock. */
+  stockStatus: 'in' | 'low' | 'out' | null
   /** Whether the product has any (non-deleted) variants — lets callers skip loading them. */
   hasVariants: boolean
   categoryName: string | null
