@@ -207,6 +207,15 @@ record (product, variant, category, unit, contact) is not a fact that already ha
 refusing it loses nothing; checking on the till first means a current till never produces
 one the server will refuse.
 
+- Units of measure, as built: `packages/domain/src/catalog/unit-rules.ts`. The name is
+  stored trimmed and in capitals (at most 50 characters), the abbreviation trimmed (at most
+  10, may be empty), the type one of the five. A business's unit names are unique without
+  regard to case, deleted units included, because the database index counts them; before,
+  creating a unit with a deleted unit's name failed with a server error. System and default
+  units cannot be changed or deleted; a business's own unit is never a default one (the sync
+  path used to take `isDefault` from the till). A unit is deleted only once no product uses
+  it, now on the sync path too.
+
 ### R13. Stock tracking by product type (2026-10-16)
 
 The server's rule: a service or a bundle (composite) holds no stock, a product sold by

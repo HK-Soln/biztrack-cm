@@ -68,6 +68,9 @@ import {
   normalizePhone,
   toWholeXaf,
   validateSerialNumber,
+  checkUnitEditable,
+  checkUnitRemoval,
+  decideUnit,
 } from '@biztrack/domain'
 import {
   AttributeDisplayType,
@@ -157,7 +160,6 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
 import { CreateProductDto } from '@/modules/products/dto/create-product.dto'
-import { CreateUnitOfMeasureDto } from '@/modules/products/dto/create-unit-of-measure.dto'
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
 import { ProductsRepository } from '@/modules/products/repositories/products.repository'
@@ -3229,8 +3231,26 @@ export class SyncService {
       }
     }
 
+    // A business may not change a default unit, any more than a system one (R12).
+    if (existing && checkUnitEditable(existing)) {
+      throw new AppBadRequestException(
+        'Default units of measure cannot be changed.',
+        'UNIT_OF_MEASURE_SYSTEM_IMMUTABLE',
+      )
+    }
+
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        // Only a unit no product uses is deleted, as on the server's own path and the till.
+        const productCount = await this.dataSource.manager.count(Product, {
+          where: { businessId, unitOfMeasureId: existing.id, deletedAt: IsNull() },
+        })
+        if (checkUnitRemoval(productCount)) {
+          throw new AppBadRequestException(
+            'This unit is still used by one or more products and cannot be deleted.',
+            'UNIT_OF_MEASURE_IN_USE',
+          )
+        }
         await this.unitsRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -3242,21 +3262,38 @@ export class SyncService {
     }
 
     const payload = this.readUnitPayload(operation.payload)
-    const dto = plainToInstance(CreateUnitOfMeasureDto, {
+    const others = await this.unitsRepo.find({
+      select: { id: true, name: true },
+      where: { businessId },
+      withDeleted: true,
+    })
+    const decision = decideUnit({
       name: payload.name,
       abbreviation: payload.abbreviation,
       type: payload.type,
+      takenNames: others.filter((u) => u.id !== operation.recordId).map((u) => u.name),
     })
-    await this.ensureValidDto(dto)
+    if (!decision.ok) {
+      throw new AppBadRequestException(
+        decision.code === 'UNIT_OF_MEASURE_EXISTS'
+          ? 'The business already has a unit with this name.'
+          : 'The unit of measure is not valid.',
+        decision.code,
+      )
+    }
+    // A business's own unit is never a default one, whatever the till sent.
+    const unit = {
+      name: decision.name,
+      abbreviation: decision.abbreviation,
+      type: decision.type as UnitOfMeasureType,
+      businessId,
+      isDefault: false,
+      isActive: payload.isActive ?? true,
+    }
 
     if (existing) {
       await this.unitsRepo.update(operation.recordId, {
-        name: payload.name!.trim().toUpperCase(),
-        abbreviation: payload.abbreviation?.trim() ?? '',
-        type: payload.type! as UnitOfMeasureType,
-        businessId,
-        isDefault: Boolean(payload.isDefault),
-        isActive: payload.isActive ?? true,
+        ...unit,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -3266,12 +3303,7 @@ export class SyncService {
     await this.unitsRepo.save(
       this.unitsRepo.create({
         id: operation.recordId,
-        name: payload.name!.trim().toUpperCase(),
-        abbreviation: payload.abbreviation?.trim() ?? '',
-        businessId,
-        type: payload.type! as UnitOfMeasureType,
-        isDefault: Boolean(payload.isDefault),
-        isActive: payload.isActive ?? true,
+        ...unit,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
