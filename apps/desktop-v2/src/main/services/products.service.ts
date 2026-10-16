@@ -1,15 +1,19 @@
 import {
-  SKU_RANDOM_ALPHABET,
   buildProductSku,
   checkProductKind,
   checkProductPrices,
   checkProductSku,
+  checkSerialEdit,
+  checkSerialRetire,
+  decideSerialAdd,
   findVariantSkuClash,
   normalizeBarcode,
   normalizeVariantSku,
   productKindToStore,
   productStockFlags,
   productTakesVariants,
+  serialBatch,
+  SKU_RANDOM_ALPHABET,
   slugify,
   uniqueSlug,
   validateSerialNumber,
@@ -1553,19 +1557,20 @@ export class ProductsService {
     const existingBySerial = new Map(existing.map((u) => [u.serialNumber, u]))
     const keepIds = new Set<string>()
 
-    for (const u of units) {
-      const serial = u.serialNumber.trim()
-      if (!serial) continue
+    for (const u of serialBatch(units)) {
+      const serial = u.serialNumber
       this.assertSerialNumber(serial, u.serialType)
       const prior = existingBySerial.get(serial)
-      const id = prior?.id ?? randomUUID()
+      // A number not on this product yet: the server's rule for adding one (@biztrack/domain).
+      const decision = prior ? null : this.decideSerialAdd(businessId, serial, u.serialType)
+      const id = prior?.id ?? (decision?.action === 'REVIVE' ? decision.unitId : randomUUID())
       keepIds.add(id)
       const variantId = u.variantId ?? null
-      if (prior) {
+      if (prior || decision?.action === 'REVIVE') {
         this.db.run(
-          `UPDATE product_serial_units SET variant_id = ?, serial_type = ?, is_deleted = 0, updated_at = ?
+          `UPDATE product_serial_units SET product_id = ?, variant_id = ?, serial_type = ?, status = 'IN_STOCK', is_deleted = 0, updated_at = ?
            WHERE id = ? AND business_id = ?`,
-          [variantId, u.serialType, now, id, businessId],
+          [productId, variantId, u.serialType, now, id, businessId],
         )
       } else {
         this.db.run(
@@ -1629,29 +1634,21 @@ export class ProductsService {
     if (!product.isSerialized) throw new Error('This product does not track serial numbers.')
     const now = new Date().toISOString()
     const created: LocalSerialUnit[] = []
-    const seen = new Set<string>()
 
-    for (const u of units) {
-      const serial = u.serialNumber.trim()
-      if (!serial || seen.has(serial)) continue
-      this.assertSerialNumber(serial, u.serialType ?? product.serialType ?? 'SERIAL_NUMBER')
-      seen.add(serial)
+    for (const u of serialBatch(units)) {
+      const serial = u.serialNumber
       const variantId = u.variantId ?? null
-      const existing = this.db.get<SerialUnitRow & { is_deleted: number }>(
-        `SELECT id, product_id, variant_id, serial_number, serial_type, status, is_deleted
-         FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
-        [businessId, serial],
+      const decision = this.decideSerialAdd(
+        businessId,
+        serial,
+        u.serialType ?? product.serialType ?? 'SERIAL_NUMBER',
       )
       let id: string
-      if (existing) {
-        const live =
-          existing.is_deleted === 0 &&
-          (existing.status === 'IN_STOCK' || existing.status === 'RESERVED')
-        if (live) throw new Error(`${serial} is already in stock.`)
-        id = existing.id
+      if (decision.action === 'REVIVE') {
+        id = decision.unitId
         this.db.run(
-          `UPDATE product_serial_units SET status = 'IN_STOCK', is_deleted = 0, variant_id = ?, serial_type = ?, updated_at = ? WHERE id = ?`,
-          [variantId, u.serialType, now, id],
+          `UPDATE product_serial_units SET product_id = ?, status = 'IN_STOCK', is_deleted = 0, variant_id = ?, serial_type = ?, updated_at = ? WHERE id = ?`,
+          [productId, variantId, u.serialType, now, id],
         )
       } else {
         id = randomUUID()
@@ -1738,9 +1735,16 @@ export class ProductsService {
       [unitId, productId, businessId],
     )
     if (!unit) throw new Error('Serial unit not found.')
-    if (unit.status !== 'IN_STOCK') throw new Error('Only in-stock units can be retired.')
-    const trimmed = reason.trim()
-    if (!trimmed) throw new Error('A reason is required to retire a unit.')
+    // Only an in-stock unit is retired, with a reason (@biztrack/domain), as on the server.
+    const retire = checkSerialRetire({ status: unit.status, reason })
+    if (!retire.ok) {
+      throw new Error(
+        retire.code === 'SERIAL_UNIT_NOT_IN_STOCK'
+          ? 'Only in-stock units can be retired.'
+          : 'A reason is required to retire a unit.',
+      )
+    }
+    const trimmed = retire.reason
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
@@ -1792,20 +1796,37 @@ export class ProductsService {
       [unitId, productId, businessId],
     )
     if (!unit) throw new Error('Serial unit not found.')
-    if (unit.status !== 'IN_STOCK') throw new Error('Sold or retired units cannot be edited.')
 
-    let serial = unit.serial_number
-    if (input.serialNumber !== undefined) {
-      serial = input.serialNumber.trim()
-      if (!serial) throw new Error('Serial number is required.')
-      if (serial !== unit.serial_number) {
-        const clash = this.db.get<{ id: string }>(
-          `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
-          [businessId, serial],
-        )
-        if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
-      }
+    // Only an in-stock unit is edited; a new number is shaped and free (@biztrack/domain).
+    const next = input.serialNumber?.trim()
+    const edit = checkSerialEdit({
+      unitId,
+      status: unit.status,
+      current: unit.serial_number,
+      next: input.serialNumber,
+      serialType: unit.serial_type,
+      holder:
+        next && next !== unit.serial_number
+          ? (this.db.get<{ id: string }>(
+              `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+              [businessId, next],
+            ) ?? null)
+          : null,
+    })
+    if (!edit.ok) {
+      throw new Error(
+        edit.code === 'SERIAL_UNIT_NOT_IN_STOCK'
+          ? 'Sold or retired units cannot be edited.'
+          : edit.code === 'SERIAL_REQUIRED'
+            ? 'Serial number is required.'
+            : edit.code === 'SERIAL_INVALID_FORMAT'
+              ? unit.serial_type === 'IMEI'
+                ? `“${next}” is not a valid IMEI.`
+                : `“${next}” is not a valid serial number.`
+              : `${next} is already in use.`,
+      )
     }
+    const serial = edit.serialNumber
 
     const description =
       input.description !== undefined ? input.description : (unit.description ?? null)
@@ -2120,6 +2141,36 @@ export class ProductsService {
     if (problem === 'PRODUCT_PRICE_INVALID')
       throw new Error('The selling price cannot be negative.')
     if (problem === 'PRODUCT_COST_INVALID') throw new Error('The cost cannot be negative.')
+  }
+
+  /**
+   * Whether `serial` may go into stock and on which unit (@biztrack/domain decideSerialAdd,
+   * the server's rule): a number on hand anywhere in the business is refused, a sold or
+   * retired one comes back on its own unit.
+   */
+  private decideSerialAdd(
+    businessId: string,
+    serial: string,
+    serialType: string,
+  ): { action: 'CREATE' } | { action: 'REVIVE'; unitId: string } {
+    const holder = this.db.get<{ id: string; status: string; is_deleted: number }>(
+      `SELECT id, status, is_deleted FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+      [businessId, serial],
+    )
+    const decision = decideSerialAdd({
+      serialNumber: serial,
+      serialType,
+      holder: holder
+        ? { id: holder.id, status: holder.status, deleted: holder.is_deleted === 1 }
+        : null,
+    })
+    if (!decision.ok) {
+      if (decision.code === 'SERIAL_DUPLICATE_IN_STOCK')
+        throw new Error(`${serial} is already in stock.`)
+      this.assertSerialNumber(serial, serialType)
+      throw new Error(`“${serial}” is not a valid serial number.`)
+    }
+    return decision
   }
 
   /** A serial number has the shape its type needs (@biztrack/domain), as on the server. */

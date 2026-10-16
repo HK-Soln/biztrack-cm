@@ -137,9 +137,21 @@ Done so far (`inventory/stock-rules.ts`):
   migration `1790900000000` puts the synced quantities back to 0. The sync-created opening
   movement now carries its trading day.
 
+- Serial units (`inventory/serial-units.ts`): `serialBatch`, `decideSerialAdd` (a number
+  on hand, in stock or reserved, anywhere in the business is a duplicate; a sold, returned
+  or retired one comes back on its own unit and moves to the product it is added to),
+  `checkSerialEdit` (only an in-stock unit; a new number has its type's shape and is held
+  by no other unit), `checkSerialRetire`, `checkSerialVariant` (judged on variant rows),
+  `serialStockChange`. Used by the REST add, rename and retire, the server's restock, the
+  sync applier (which now refuses a number another unit holds instead of failing on the
+  unique index) and the till's add, set-at-creation, rename and retire. The server now
+  refuses to edit a sold or retired unit, as the till did; the till now checks a renamed
+  number's shape and checks a new number business-wide when a product's units are set.
+
 Still to do in this slice: sale, void, refund and restock deltas; effective stock and
-low / out of stock; serial unit rules; the till's removal plans and variant signatures;
-the stock reports. The opening movements a variant product records still differ in
+low / out of stock; the till's removal plans and variant signatures; the stock reports;
+the variant check on a restock's serial units (neither the server's restock nor the
+till's add path checks it); which serial status changes a synced unit may make. The opening movements a variant product records still differ in
 shape (REST: one OPENING_STOCK per variant from 0; sync and the till: product-level
 running totals).
 

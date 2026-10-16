@@ -115,6 +115,10 @@ export interface I18nTranslations {
     serial_unit_not_in_stock: string
     serial_duplicate_in_stock: string
     serial_invalid_format: string
+    serial_in_use: string
+    serial_required: string
+    serial_retire_reason_required: string
+    serial_unit_not_editable: string
     online_store_exists: string
     online_store_not_found: string
     online_store_publication_not_found: string

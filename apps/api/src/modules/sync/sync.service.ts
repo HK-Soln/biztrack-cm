@@ -68,6 +68,7 @@ import {
   checkUnitRemoval,
   contactNameKey,
   debtStanding,
+  decideSerialAdd,
   decideStockAdjustment,
   decideUnit,
   findContactClashes,
@@ -77,6 +78,7 @@ import {
   normalizePhone,
   normalizeVariantSku,
   productKindToStore,
+  serialStockChange,
   slugify,
   stockChangeMovementType,
   stockLevelOnEdit,
@@ -2716,6 +2718,32 @@ export class SyncService {
         'SERIAL_NUMBER_INVALID',
       )
     }
+    // Another unit already holding the number (numbers are unique per business).
+    const holder = await this.productSerialUnitsRepo.findOne({
+      where: { businessId, serialNumber },
+      withDeleted: true,
+    })
+    const otherHolder = holder && holder.id !== operation.recordId ? holder : null
+    if (otherHolder) {
+      // The same rule as the server's own path (@biztrack/domain decideSerialAdd): a number
+      // on hand is a duplicate; a sold or retired one lives on its own unit, which a till
+      // brings back by that unit, not by a new one.
+      const decision = decideSerialAdd({
+        serialNumber,
+        serialType,
+        holder: {
+          id: otherHolder.id,
+          status: otherHolder.status,
+          deleted: otherHolder.deletedAt != null,
+        },
+      })
+      return {
+        status: 'failed',
+        errorMessage: `Serial number "${serialNumber}" is already used by another unit (${
+          decision.ok ? 'SERIAL_IN_USE' : decision.code
+        }).`,
+      }
+    }
 
     const variantId =
       payload.variantId === undefined ? (existing?.variantId ?? null) : payload.variantId
@@ -2724,7 +2752,7 @@ export class SyncService {
       SerialUnitStatus.IN_STOCK) as SerialUnitStatus
 
     if (existing) {
-      const wasInStock = !existing.deletedAt && existing.status === SerialUnitStatus.IN_STOCK
+      const before = { status: existing.status, deleted: existing.deletedAt != null }
       await this.productSerialUnitsRepo.update(operation.recordId, {
         productId,
         variantId,
@@ -2742,7 +2770,7 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
       // Reviving a retired/sold unit back into stock is a stock-in; a plain rename is not.
-      const change = (status === SerialUnitStatus.IN_STOCK ? 1 : 0) - (wasInStock ? 1 : 0)
+      const change = serialStockChange(before, { status, deleted: false })
       if (change !== 0) {
         await this.recordSyncStockMovement(
           businessId,
@@ -2777,7 +2805,7 @@ export class SyncService {
       }),
     )
     // A new in-stock unit is a stock-in — mirror the desktop ledger entry.
-    if (status === SerialUnitStatus.IN_STOCK) {
+    if (serialStockChange(null, { status, deleted: false }) > 0) {
       await this.recordSyncStockMovement(
         businessId,
         productId,

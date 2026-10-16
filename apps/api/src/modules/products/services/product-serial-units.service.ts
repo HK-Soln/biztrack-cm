@@ -12,7 +12,6 @@ import {
   type SerialUnitsQuery,
   type UpdateSerialUnitRequest,
 } from '@biztrack/types'
-import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
@@ -28,7 +27,17 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
-import { stockChangeMovementType } from '@biztrack/domain'
+import {
+  checkSerialEdit,
+  checkSerialRetire,
+  checkSerialVariant,
+  decideSerialAdd,
+  serialBatch,
+  stockChangeMovementType,
+  type SerialAddRejection,
+  type SerialEditRejection,
+  type SerialRetireRejection,
+} from '@biztrack/domain'
 
 /**
  * Manage the individually-tracked units of a serialised product (Phase 4 —
@@ -109,42 +118,27 @@ export class ProductSerialUnitsService {
         })
 
         const saved: ProductSerialUnit[] = []
-        const seen = new Set<string>()
-        for (const unit of dto.units) {
-          const serialNumber = unit.serialNumber.trim()
-          if (!serialNumber || seen.has(serialNumber)) continue
-          seen.add(serialNumber)
-
-          if (!validateSerialNumber(serialNumber, serialType)) {
-            throw new AppBadRequestException(
-              await this.i18n.translate('errors.serial_invalid_format', {
-                args: { serial: serialNumber, type: serialType },
-              }),
-              'SERIAL_INVALID_FORMAT',
-            )
-          }
-
+        for (const unit of serialBatch(dto.units)) {
+          const { serialNumber } = unit
           const existing = await serialRepo.findOne({
             where: { businessId, serialNumber },
             withDeleted: true,
           })
-          if (existing) {
-            const live =
-              !existing.deletedAt &&
-              (existing.status === SerialUnitStatus.IN_STOCK ||
-                existing.status === SerialUnitStatus.RESERVED)
-            if (live) {
-              throw new AppBadRequestException(
-                await this.i18n.translate('errors.serial_duplicate_in_stock', {
-                  args: { serial: serialNumber },
-                }),
-                'SERIAL_DUPLICATE_IN_STOCK',
-              )
-            }
-            // Revive a previously retired/sold/returned unit back into stock.
+          // Whether the number may go into stock, and on which unit (@biztrack/domain).
+          const decision = decideSerialAdd({
+            serialNumber,
+            serialType,
+            holder: existing
+              ? { id: existing.id, status: existing.status, deleted: existing.deletedAt != null }
+              : null,
+          })
+          if (!decision.ok) throw await this.serialError(decision.code, serialNumber, serialType)
+          if (decision.action === 'REVIVE' && existing) {
+            // A sold, returned or retired number comes back into stock on its unit.
             await serialRepo.update(
               { id: existing.id },
               {
+                productId,
                 status: SerialUnitStatus.IN_STOCK,
                 variantId: unit.variantId ?? null,
                 saleId: null,
@@ -236,34 +230,26 @@ export class ProductSerialUnitsService {
       const unit = await this.requireUnit(productId, unitId, businessId)
 
       const patch: Partial<ProductSerialUnit> = {}
-      let serialNumber = unit.serialNumber
-
-      if (dto.serialNumber !== undefined) {
-        serialNumber = dto.serialNumber.trim()
-        if (serialNumber !== unit.serialNumber) {
-          if (!validateSerialNumber(serialNumber, serialType)) {
-            throw new AppBadRequestException(
-              await this.i18n.translate('errors.serial_invalid_format', {
-                args: { serial: serialNumber, type: serialType },
-              }),
-              'SERIAL_INVALID_FORMAT',
-            )
-          }
-          const clash = await this.serialUnitsRepo.findOne({
-            where: { businessId, serialNumber },
-            withDeleted: true,
-          })
-          if (clash && clash.id !== unit.id) {
-            throw new AppBadRequestException(
-              await this.i18n.translate('errors.serial_duplicate_in_stock', {
-                args: { serial: serialNumber },
-              }),
-              'SERIAL_DUPLICATE_IN_STOCK',
-            )
-          }
-        }
-        patch.serialNumber = serialNumber
-      }
+      const next = dto.serialNumber?.trim()
+      const holder =
+        next && next !== unit.serialNumber
+          ? await this.serialUnitsRepo.findOne({
+              where: { businessId, serialNumber: next },
+              withDeleted: true,
+            })
+          : null
+      // Only an in-stock unit is edited; a new number is shaped and free (@biztrack/domain).
+      const edit = checkSerialEdit({
+        unitId: unit.id,
+        status: unit.status,
+        current: unit.serialNumber,
+        next: dto.serialNumber,
+        serialType,
+        holder,
+      })
+      if (!edit.ok) throw await this.serialError(edit.code, next ?? unit.serialNumber, serialType)
+      const serialNumber = edit.serialNumber
+      if (dto.serialNumber !== undefined) patch.serialNumber = serialNumber
 
       // Unique-item mode: the unit carries its own description / image / SEO.
       if (dto.description !== undefined) patch.description = dto.description
@@ -302,13 +288,10 @@ export class ProductSerialUnitsService {
     try {
       await this.requireSerializedProduct(productId, businessId)
       const unit = await this.requireUnit(productId, unitId, businessId)
-      if (unit.status !== SerialUnitStatus.IN_STOCK) {
-        throw new AppBadRequestException(
-          await this.i18n.translate('errors.serial_unit_not_in_stock'),
-          'SERIAL_UNIT_NOT_IN_STOCK',
-        )
-      }
-      const reason = dto.reason.trim()
+      // Only an in-stock unit is retired, with a reason (@biztrack/domain).
+      const retire = checkSerialRetire({ status: unit.status, reason: dto.reason })
+      if (!retire.ok) throw await this.serialError(retire.code, unit.serialNumber, unit.serialType)
+      const { reason } = retire
 
       // Local trading day (BIZ-5.1) from the business timezone + cutover.
       const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
@@ -378,27 +361,63 @@ export class ProductSerialUnitsService {
     variantId: string | null,
     businessId: string,
   ): Promise<void> {
-    if (product.hasVariants) {
-      if (!variantId) {
-        throw new AppBadRequestException(
-          await this.i18n.translate('errors.serial_variant_required'),
-          'SERIAL_VARIANT_REQUIRED',
-        )
-      }
-      const variant = await this.variantsRepo.findOne({
-        where: { id: variantId, productId: product.id, businessId },
-      })
-      if (!variant) {
-        throw new AppBadRequestException(
-          await this.i18n.translate('errors.serial_variant_invalid'),
-          'SERIAL_VARIANT_INVALID',
-        )
-      }
-    } else if (variantId) {
+    // Whether variant rows exist, not the has_variants flag, which can go stale.
+    const hasVariants = await this.variantsRepo.exists({
+      where: { productId: product.id, businessId },
+    })
+    const variantFound = variantId
+      ? await this.variantsRepo.exists({
+          where: { id: variantId, productId: product.id, businessId },
+        })
+      : false
+    const problem = checkSerialVariant({ hasVariants, variantId, variantFound })
+    if (problem) {
       throw new AppBadRequestException(
-        await this.i18n.translate('errors.serial_variant_invalid'),
-        'SERIAL_VARIANT_INVALID',
+        await this.i18n.translate(
+          problem === 'SERIAL_VARIANT_REQUIRED'
+            ? 'errors.serial_variant_required'
+            : 'errors.serial_variant_invalid',
+        ),
+        problem,
       )
+    }
+  }
+
+  /** The error for a refused serial unit change (@biztrack/domain serial rules). */
+  private async serialError(
+    code: SerialAddRejection | SerialEditRejection | SerialRetireRejection,
+    serial: string,
+    type: string,
+  ): Promise<AppException> {
+    const args = { serial, type }
+    switch (code) {
+      case 'SERIAL_INVALID_FORMAT':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.serial_invalid_format', { args }),
+          code,
+        )
+      case 'SERIAL_DUPLICATE_IN_STOCK':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.serial_duplicate_in_stock', { args }),
+          code,
+        )
+      case 'SERIAL_IN_USE':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.serial_in_use', { args }),
+          code,
+        )
+      case 'SERIAL_REQUIRED':
+        return new AppBadRequestException(await this.i18n.translate('errors.serial_required'), code)
+      case 'SERIAL_RETIRE_REASON_REQUIRED':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.serial_retire_reason_required'),
+          code,
+        )
+      case 'SERIAL_UNIT_NOT_IN_STOCK':
+        return new AppBadRequestException(
+          await this.i18n.translate('errors.serial_unit_not_in_stock'),
+          code,
+        )
     }
   }
 

@@ -24,13 +24,15 @@ import type {
 } from '@biztrack/types'
 import { DebtDirection, DebtSource, PurchaseOrderStatus, SerialUnitStatus } from '@biztrack/types'
 import {
-  REORDER_WINDOW_DAYS,
   checkRestockCredit,
   checkStockAdjustmentQuantity,
   checkStockAdjustmentTarget,
   computeReorderVelocity,
-  decideStockAdjustment,
   computeStockoutMs,
+  decideSerialAdd,
+  decideStockAdjustment,
+  REORDER_WINDOW_DAYS,
+  serialBatch,
   settleRestock,
   toWholeXaf,
   type StockAdjustmentRejection,
@@ -38,7 +40,6 @@ import {
   type StockPoint,
   type VelocityResult,
 } from '@biztrack/domain'
-import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -1873,37 +1874,37 @@ export class InventoryService {
 
     const errors: RestockSerialResult[] = []
     let created = 0
-    const seenInBatch = new Set<string>()
 
-    for (const raw of serialNumbers) {
-      const serialNumber = raw.trim()
-      if (!serialNumber || seenInBatch.has(serialNumber)) {
-        continue
-      }
-      seenInBatch.add(serialNumber)
-
-      if (!validateSerialNumber(serialNumber, serialType)) {
-        errors.push({ serialNumber, reason: 'INVALID_FORMAT' })
-        continue
-      }
-
+    for (const { serialNumber } of serialBatch(
+      serialNumbers.map((serialNumber) => ({ serialNumber })),
+    )) {
       const existing = await serialUnitRepo.findOne({
         where: { businessId: input.businessId, serialNumber },
         withDeleted: true,
       })
+      // The rule for adding a number to stock (@biztrack/domain decideSerialAdd).
+      const decision = decideSerialAdd({
+        serialNumber,
+        serialType,
+        holder: existing
+          ? { id: existing.id, status: existing.status, deleted: existing.deletedAt != null }
+          : null,
+      })
+      if (!decision.ok) {
+        errors.push({
+          serialNumber,
+          reason:
+            decision.code === 'SERIAL_INVALID_FORMAT' ? 'INVALID_FORMAT' : 'DUPLICATE_IN_STOCK',
+        })
+        continue
+      }
 
       if (existing) {
-        if (
-          existing.status === SerialUnitStatus.IN_STOCK ||
-          existing.status === SerialUnitStatus.RESERVED
-        ) {
-          errors.push({ serialNumber, reason: 'DUPLICATE_IN_STOCK' })
-          continue
-        }
         // Legitimate re-stock of a previously sold/returned/damaged unit.
         await serialUnitRepo.update(
           { id: existing.id },
           {
+            productId: product.id,
             status: SerialUnitStatus.IN_STOCK,
             variantId: item.variantId ?? null,
             restockId,

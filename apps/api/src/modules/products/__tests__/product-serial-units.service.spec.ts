@@ -58,7 +58,13 @@ function makeService(
     create: jest.fn((input: unknown) => input),
     save: jest.fn(async (input: unknown) => input),
   }
-  const variantsRepo = { findOne: jest.fn(async () => opts.variant ?? null) }
+  // Variant rows exist when the product has variants; a given variant exists when set.
+  const variantsRepo = {
+    findOne: jest.fn(async () => opts.variant ?? null),
+    exists: jest.fn(async ({ where }: any) =>
+      where.id ? opts.variant != null : product.hasVariants === true,
+    ),
+  }
 
   const manager = {
     getRepository: jest.fn((entity: unknown) =>
