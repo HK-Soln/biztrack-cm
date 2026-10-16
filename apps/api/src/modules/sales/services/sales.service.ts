@@ -5,7 +5,6 @@ import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
-  PROFIT_SALE_STATUSES,
   checkSaleCredit,
   decideSaleRefund,
   decideSaleVoid,
@@ -17,12 +16,13 @@ import {
   netSalesByProduct,
   netSalesSummary,
   priceSale,
+  PROFIT_SALE_STATUSES,
   refundProfitImpact,
   refundsReport,
   returnDebtReduction,
+  returnsByCashier,
   returnTotals,
   returnTotalsBy,
-  returnsByCashier,
   reviewSerialAlreadySold,
   reviewStockAfterSyncedSale,
   reviewSyncedDiscount,
@@ -30,6 +30,7 @@ import {
   roundQuantity,
   saleOpensDebt,
   saleReturnStatus,
+  saleStockLines,
   settleSale,
   settleSaleFromLedger,
   staffMay,
@@ -2550,12 +2551,6 @@ export class SalesService {
     const products = await manager.getRepository(Product).find({
       where: { id: In(productIds), businessId },
     })
-    const typeById = new Map(products.map((product) => [product.id, product.productType]))
-    // Serialised products have no inventory_levels row — stock is the unit count,
-    // handled by marking the serial unit SOLD, so they're excluded from deduction.
-    const serializedIds = new Set(
-      products.filter((product) => product.isSerialized).map((product) => product.id),
-    )
     const compositeIds = products
       .filter((product) => product.productType === ProductType.COMPOSITE)
       .map((product) => product.id)
@@ -2571,32 +2566,21 @@ export class SalesService {
         componentsByBundle.set(component.bundleProductId, list)
       }
     }
+    // The components themselves, to know which of them hold a stock level.
+    const componentIds = [
+      ...new Set([...componentsByBundle.values()].flat().map((c) => c.componentProductId)),
+    ].filter((id) => !productIds.includes(id))
+    const componentProducts = componentIds.length
+      ? await manager.getRepository(Product).find({ where: { id: In(componentIds), businessId } })
+      : []
+    const productById = new Map([...products, ...componentProducts].map((p) => [p.id, p]))
 
-    const expanded: Array<{
-      productId: string
-      variantId?: string | null
-      productName: string
-      quantity: number
-      movementId?: string | null
-    }> = []
-    for (const line of lines) {
-      if (serializedIds.has(line.productId)) {
-        continue
-      }
-      if (typeById.get(line.productId) === ProductType.COMPOSITE) {
-        for (const component of componentsByBundle.get(line.productId) ?? []) {
-          expanded.push({
-            productId: component.componentProductId,
-            variantId: null,
-            productName: line.productName,
-            quantity: component.quantity * line.quantity,
-          })
-        }
-      } else {
-        expanded.push(line)
-      }
-    }
-    return expanded
+    // Which levels the lines change (@biztrack/domain saleStockLines, as the till): a bundle
+    // takes from its components, a serialized product's units carry its stock.
+    return saleStockLines(lines, {
+      product: (id) => productById.get(id),
+      components: (id) => componentsByBundle.get(id) ?? [],
+    })
   }
 
   /** Mark a sale's serialised units SOLD (Phase 3G). Runs in the sale transaction. */

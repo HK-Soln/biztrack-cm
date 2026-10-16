@@ -4,9 +4,8 @@ import {
   checkSaleCredit,
   decideSaleRefund,
   decideSaleVoid,
-  effectivePaymentLines,
   discountNeedsAuthorization,
-  NO_DISCOUNT_POLICY,
+  effectivePaymentLines,
   isBelowCost,
   netCashierRoster,
   netDailySales,
@@ -14,22 +13,25 @@ import {
   netSalesByProduct,
   netSalesProfit,
   netSalesSummary,
+  NO_DISCOUNT_POLICY,
   priceSale,
-  roundQuantity,
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
   refundsReport,
   returnsByCashier,
   returnTotals,
   returnTotalsBy,
-  type ReportReturnLine,
-  type RoleDiscountLimits,
-  type RoleDiscountPolicy,
+  roundQuantity,
+  saleStockLines,
   settleSale,
   settleSaleFromLedger,
   storedPaymentMethod,
   sumRefundProfitImpacts,
   toWholeXaf,
+  type ReportReturnLine,
+  type RoleDiscountLimits,
+  type RoleDiscountPolicy,
+  type StockedProduct,
 } from '@biztrack/domain'
 import type { SaleReceipt, ReceiptSettings } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -295,13 +297,14 @@ export class SalesService {
           reasonCode: line.reasonCode ?? null,
           reasonNote: line.reasonNote ?? null,
         })
-        if (meta.trackInventory)
-          decrements.push({
-            productId: line.productId,
-            variantId,
-            quantity: qty,
-            trackInventory: true,
-          })
+        // Every line goes to the stock plan (moveSaleStock): a bundle tracks no stock of its
+        // own but moves its components'.
+        decrements.push({
+          productId: line.productId,
+          variantId,
+          quantity: qty,
+          trackInventory: meta.trackInventory,
+        })
       }
     }
 
@@ -628,36 +631,13 @@ export class SalesService {
         [saleId, soldAt, customerId, now, ...soldSerialIds],
       )
     }
-    const movementById = new Map<string, string>()
-    for (const d of decrements) {
-      if (!d.trackInventory) continue
-      if (d.variantId) {
-        this.db.run(
-          `UPDATE product_variants SET stock_quantity = stock_quantity - ?, updated_at = ? WHERE id = ?`,
-          [d.quantity, now, d.variantId],
-        )
-      } else {
-        this.db.run(
-          `UPDATE products SET stock_quantity = stock_quantity - ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-          [d.quantity, now, d.productId, businessId],
-        )
-      }
-      const movementId = recordStockMovement(
-        this.db,
-        businessId,
-        d.productId,
-        -d.quantity,
-        {
-          referenceType: 'sale',
-          referenceId: saleId,
-          variantId: d.variantId ?? null,
-          notes: `Sale ${saleNumber}`,
-          type: 'SALE',
-        },
-        now,
-      )
-      if (movementId) movementById.set(`${d.productId}:${d.variantId ?? ''}`, movementId)
-    }
+    const movementById = this.moveSaleStock(
+      businessId,
+      saleId,
+      decrements.map((d) => ({ productId: d.productId, variantId: d.variantId, qty: d.quantity })),
+      { sign: -1, type: 'SALE', notes: `Sale ${saleNumber}` },
+      now,
+    )
 
     // --- sync outbox: the full SaleSyncPayload the API already accepts --------
     this.enqueueSale(
@@ -898,38 +878,6 @@ export class SalesService {
       cur.qty += it.quantity
       byKey.set(key, cur)
     }
-    for (const { productId, variantId, qty } of byKey.values()) {
-      const meta = this.db.get<{ track_inventory: number }>(
-        `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
-        [productId, businessId],
-      )
-      if (!meta?.track_inventory) continue
-      if (variantId) {
-        this.db.run(
-          `UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`,
-          [qty, now, variantId],
-        )
-      } else {
-        this.db.run(
-          `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-          [qty, now, productId, businessId],
-        )
-      }
-      recordStockMovement(
-        this.db,
-        businessId,
-        productId,
-        qty,
-        {
-          referenceType: 'sale',
-          referenceId: saleId,
-          variantId,
-          notes: `Void ${sale.sale_number}`,
-          type: 'VOID_REVERSAL',
-        },
-        now,
-      )
-    }
     if (soldSerialIds.length > 0) {
       const ph = soldSerialIds.map(() => '?').join(', ')
       this.db.run(
@@ -938,6 +886,13 @@ export class SalesService {
         [now, ...soldSerialIds],
       )
     }
+    this.moveSaleStock(
+      businessId,
+      saleId,
+      [...byKey.values()],
+      { sign: 1, type: 'VOID_REVERSAL', notes: `Void ${sale.sale_number}` },
+      now,
+    )
 
     // 3) Refund any deposit (savings) draw-down.
     this.savings.reverseSaleUsage(saleId, now, actorId)
@@ -963,6 +918,99 @@ export class SalesService {
       },
     })
     return this.get(saleId)!
+  }
+
+  /**
+   * Move the stock of a sale's lines: `sign` −1 takes it (a sale), +1 gives it back (a void
+   * or a returned-to-stock refund). Which levels change is @biztrack/domain saleStockLines,
+   * the server's rule: a bundle moves its components, a serialized product's units carry its
+   * stock (the caller has already marked them; only the movement is written here), and an
+   * untracked product moves nothing. Returns the movement id per product:variant.
+   */
+  private moveSaleStock(
+    businessId: string,
+    saleId: string,
+    lines: ReadonlyArray<{ productId: string; variantId: string | null; qty: number }>,
+    opts: { sign: 1 | -1; type: 'SALE' | 'VOID_REVERSAL'; notes: string },
+    now: string,
+  ): Map<string, string> {
+    const products = new Map<string, StockedProduct | undefined>()
+    const product = (id: string) => {
+      if (!products.has(id)) {
+        const row = this.db.get<{
+          product_type: string
+          track_inventory: number
+          is_serialized: number
+        }>(
+          `SELECT product_type, track_inventory, is_serialized FROM products WHERE id = ? AND business_id = ?`,
+          [id, businessId],
+        )
+        products.set(
+          id,
+          row
+            ? {
+                productType: row.product_type,
+                trackInventory: row.track_inventory === 1,
+                isSerialized: row.is_serialized === 1,
+              }
+            : undefined,
+        )
+      }
+      return products.get(id)
+    }
+    const components = (bundleId: string) =>
+      this.db
+        .query<{ component_product_id: string; quantity: number }>(
+          `SELECT component_product_id, quantity FROM product_bundle_components
+           WHERE bundle_product_id = ? AND business_id = ? AND is_deleted = 0`,
+          [bundleId, businessId],
+        )
+        .map((c) => ({ componentProductId: c.component_product_id, quantity: c.quantity }))
+
+    const movementIds = new Map<string, string>()
+    const record = (productId: string, variantId: string | null, qty: number) => {
+      const id = recordStockMovement(
+        this.db,
+        businessId,
+        productId,
+        opts.sign * qty,
+        {
+          referenceType: 'sale',
+          referenceId: saleId,
+          variantId,
+          notes: opts.notes,
+          type: opts.type,
+        },
+        now,
+      )
+      if (id) movementIds.set(`${productId}:${variantId ?? ''}`, id)
+    }
+
+    // A serialized product: its units already moved; write the movement only.
+    for (const line of lines) {
+      const p = product(line.productId)
+      if (p?.trackInventory && p.isSerialized) record(line.productId, line.variantId, line.qty)
+    }
+    const levelLines = saleStockLines(
+      lines.map((l) => ({ productId: l.productId, variantId: l.variantId, quantity: l.qty })),
+      { product, components },
+    )
+    for (const line of levelLines) {
+      if (!product(line.productId)) continue
+      if (line.variantId) {
+        this.db.run(
+          `UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`,
+          [opts.sign * line.quantity, now, line.variantId],
+        )
+      } else {
+        this.db.run(
+          `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [opts.sign * line.quantity, now, line.productId, businessId],
+        )
+      }
+      record(line.productId, line.variantId ?? null, line.quantity)
+    }
+    return movementIds
   }
 
   /** Rebuild the full SaleSyncPayload from stored rows, stamped VOIDED, for the outbox. */
@@ -1276,38 +1324,6 @@ export class SalesService {
         cur.qty += r.quantity
         byKey.set(key, cur)
       }
-      for (const { productId, variantId, qty } of byKey.values()) {
-        const meta = this.db.get<{ track_inventory: number }>(
-          `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
-          [productId, businessId],
-        )
-        if (!meta?.track_inventory) continue
-        if (variantId) {
-          this.db.run(
-            `UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`,
-            [qty, now, variantId],
-          )
-        } else {
-          this.db.run(
-            `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-            [qty, now, productId, businessId],
-          )
-        }
-        recordStockMovement(
-          this.db,
-          businessId,
-          productId,
-          qty,
-          {
-            referenceType: 'sale',
-            referenceId: saleId,
-            variantId,
-            notes: `Return ${sale.sale_number}`,
-            type: 'VOID_REVERSAL',
-          },
-          now,
-        )
-      }
       if (serialIds.length > 0) {
         const ph = serialIds.map(() => '?').join(', ')
         this.db.run(
@@ -1316,6 +1332,13 @@ export class SalesService {
           [now, ...serialIds],
         )
       }
+      this.moveSaleStock(
+        businessId,
+        saleId,
+        [...byKey.values()],
+        { sign: 1, type: 'VOID_REVERSAL', notes: `Return ${sale.sale_number}` },
+        now,
+      )
     }
 
     // 4) Recompute settlement from the signed payment ledger + set status. Goods that came

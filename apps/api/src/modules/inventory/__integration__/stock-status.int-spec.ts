@@ -95,4 +95,27 @@ describe('stock status on the server', () => {
     expect(byId.get(out)).toMatchObject({ target: 0, shortfall: 1 })
     expect(await h.inventory.findBusinessIdsWithLowStockAlerts()).toContain(h.businessId)
   })
+
+  it('takes a synced bundle sale from its components (@biztrack/domain saleStockLines)', async () => {
+    const rice = await h.seedProduct({ price: 500, stock: 10 })
+    const basket = await h.seedProduct({ price: 1500 })
+    await dataSource.query(
+      `UPDATE products SET product_type = 'COMPOSITE', track_inventory = false WHERE id = $1`,
+      [basket],
+    )
+    await dataSource.query(
+      `INSERT INTO product_bundle_components (business_id, bundle_product_id, component_product_id, quantity)
+       VALUES ($1, $2, $3, 2), ($1, $2, $4, 1)`,
+      [h.businessId, basket, rice, phone],
+    )
+
+    await h.sales.createFromSync(
+      h.businessId,
+      h.salePayload({ items: [{ productId: basket, quantity: 2, unitPrice: 1500 }] }),
+    )
+
+    // Rice: 2 per basket × 2. The serialized component holds no level to take from.
+    expect(await h.stockOf(rice)).toBe(6)
+    expect(await h.stockOf(phone)).toBe(0)
+  })
 })

@@ -44,16 +44,16 @@ describe('stock status on the till', () => {
     const full = product('Cap')
     variant(full.id, 'One size', 4)
 
-    expect(products.getOne(shirt.id)).toMatchObject({ currentStock: 5, stockStatus: 'low' })
-    expect(products.getOne(full.id)?.stockStatus).toBe('in')
+    expect(products.get(shirt.id)).toMatchObject({ currentStock: 5, stockStatus: 'low' })
+    expect(products.get(full.id)?.stockStatus).toBe('in')
     expect(products.list({ stockStatus: 'low' }).data.map((p) => p.id)).toEqual([shirt.id])
     expect(products.stats()).toMatchObject({ lowStock: 1 })
   })
 
   it("counts a serialized product's units", () => {
     const phone = product('Phone', { isSerialized: true, serialType: 'SERIAL_NUMBER' })
-    expect(products.getOne(phone.id)?.stockStatus).toBe('out')
+    expect(products.get(phone.id)?.stockStatus).toBe('out')
     products.addSerialUnits(phone.id, [{ serialNumber: 'SN-1', serialType: 'SERIAL_NUMBER' }])
-    expect(products.getOne(phone.id)).toMatchObject({ currentStock: 1, stockStatus: 'in' })
+    expect(products.get(phone.id)).toMatchObject({ currentStock: 1, stockStatus: 'in' })
   })
 })

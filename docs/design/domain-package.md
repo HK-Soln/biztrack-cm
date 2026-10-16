@@ -167,8 +167,18 @@ Done so far (`inventory/stock-rules.ts`):
 - The server's product detail now loads variants and sums their stock on the variant rows,
   not the `has_variants` flag, as the list and the till do.
 
-Still to do in this slice: sale, void, refund and restock deltas; the till's removal plans
-and variant signatures; the stock reports;
+- `saleStockLines`: which levels a sale takes from and a void or restocked return gives
+  back (a bundle moves its components; a serialized product's units carry its stock; an
+  untracked product moves nothing). The server's `expandSaleItemsForInventory` and the
+  till's sale, void and refund run it. Before, a bundle sold on a till moved no stock until
+  the sale synced (the till never read the bundle components it pulls), the till moved a
+  serialized product's own quantity as well as its units, and a serialized component of a
+  bundle was taken from a level on the server. The till now writes a serialized product's
+  movement after its units are released, so the movement's counts are right.
+
+Still to do in this slice: the restock deltas; the till's removal plans and variant
+signatures; the stock reports; the server writes no movement for a serialized product's
+sale or void (the till does);
 the variant check on a restock's serial units (neither the server's restock nor the
 till's add path checks it); which serial status changes a synced unit may make. The opening movements a variant product records still differ in
 shape (REST: one OPENING_STOCK per variant from 0; sync and the till: product-level

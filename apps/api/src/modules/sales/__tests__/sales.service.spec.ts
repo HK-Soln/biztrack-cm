@@ -72,6 +72,7 @@ const product = (over: Partial<Product>): Partial<Product> => ({
   isActive: true,
   hasVariants: false,
   isSerialized: false,
+  trackInventory: true,
   productType: ProductType.SIMPLE,
   sellingPrice: 1000,
   costPrice: 600,

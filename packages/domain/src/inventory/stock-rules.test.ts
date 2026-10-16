@@ -7,9 +7,11 @@ import {
   previewStockAdjustment,
   productStockStatus,
   productStockStatusSql,
+  saleStockLines,
   stockChangeMovementType,
   stockLevelOnEdit,
   stockStatusSql,
+  type StockedProduct,
 } from './stock-rules'
 
 describe('decideStockAdjustment', () => {
@@ -191,5 +193,44 @@ describe('stockStatusSql', () => {
         anyVariantShort: 'short',
       }),
     ).toContain("WHEN hv THEN (CASE WHEN s <= 0 THEN 'OUT' WHEN short THEN 'LOW' ELSE 'IN' END)")
+  })
+})
+
+describe('saleStockLines', () => {
+  const products: Record<string, StockedProduct> = {
+    rice: { productType: 'SIMPLE', trackInventory: true, isSerialized: false },
+    oil: { productType: 'SIMPLE', trackInventory: true, isSerialized: false },
+    phone: { productType: 'SIMPLE', trackInventory: true, isSerialized: true },
+    service: { productType: 'SERVICE', trackInventory: false, isSerialized: false },
+    basket: { productType: 'COMPOSITE', trackInventory: false, isSerialized: false },
+  }
+  const catalog = {
+    product: (id: string) => products[id],
+    components: (id: string) =>
+      id === 'basket'
+        ? [
+            { componentProductId: 'rice', quantity: 2 },
+            { componentProductId: 'oil', quantity: 0.5 },
+            { componentProductId: 'service', quantity: 1 },
+          ]
+        : [],
+  }
+
+  it('takes a bundle from its components and skips units and services', () => {
+    expect(
+      saleStockLines(
+        [
+          { productId: 'basket', quantity: 3, tag: 'b' },
+          { productId: 'rice', variantId: null, quantity: 1, tag: 'r' },
+          { productId: 'phone', quantity: 1, tag: 'p' },
+          { productId: 'service', quantity: 1, tag: 's' },
+        ],
+        catalog,
+      ),
+    ).toEqual([
+      { productId: 'rice', variantId: null, quantity: 6, tag: 'b' },
+      { productId: 'oil', variantId: null, quantity: 1.5, tag: 'b' },
+      { productId: 'rice', variantId: null, quantity: 1, tag: 'r' },
+    ])
   })
 })

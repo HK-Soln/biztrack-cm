@@ -235,3 +235,50 @@ export function productStockStatusSql(e: {
 }): string {
   return `(CASE WHEN ${e.hasVariants} THEN (CASE WHEN ${e.stock} <= 0 THEN 'OUT' WHEN ${e.anyVariantShort} THEN 'LOW' ELSE 'IN' END) ELSE ${stockStatusSql(e.stock, e.reorderPoint, e.lowStockThreshold)} END)`
 }
+
+/** What a stock plan needs to know about a product. */
+export interface StockedProduct {
+  productType: string
+  trackInventory: boolean
+  isSerialized: boolean
+}
+
+/**
+ * The stock levels a sale takes from, and that a void or a returned-to-stock refund gives
+ * back. A bundle takes from its components (each component's quantity per bundle × the
+ * bundles sold); a serialized product's stock is its units, which the sale marks sold, so it
+ * touches no level; a product that does not track stock touches none. Lines keep their other
+ * fields (a component line keeps the bundle line's), so a caller can carry its own ids.
+ */
+export function saleStockLines<
+  L extends { productId: string; variantId?: string | null; quantity: number },
+>(
+  lines: readonly L[],
+  catalog: {
+    product: (productId: string) => StockedProduct | undefined
+    components: (
+      bundleId: string,
+    ) => ReadonlyArray<{ componentProductId: string; quantity: number }>
+  },
+): L[] {
+  const out: L[] = []
+  const takesLevel = (p: StockedProduct | undefined) =>
+    p == null || (p.trackInventory && !p.isSerialized)
+  for (const line of lines) {
+    const product = catalog.product(line.productId)
+    if (product?.productType === 'COMPOSITE') {
+      for (const part of catalog.components(line.productId)) {
+        if (!takesLevel(catalog.product(part.componentProductId))) continue
+        out.push({
+          ...line,
+          productId: part.componentProductId,
+          variantId: null,
+          quantity: roundQuantity(part.quantity * line.quantity),
+        })
+      }
+    } else if (takesLevel(product)) {
+      out.push(line)
+    }
+  }
+  return out
+}
