@@ -20,9 +20,9 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { Brand } from '@/entities/brand.entity'
 import {
-  decideBrandRemoval,
+  applyBrandRemoval,
   decideModelRemoval,
-  removeBrand,
+  loadBrandRemovalPlan,
 } from '@/modules/products/catalog-usage'
 import { BrandCategory } from '@/entities/brand-category.entity'
 import { Model } from '@/entities/model.entity'
@@ -197,14 +197,17 @@ export class BrandsService {
   async remove(id: string, businessId: string, context: AuditContext): Promise<void> {
     try {
       const brand = await this.findById(id, businessId)
-      if (await decideBrandRemoval(this.brandsRepo.manager, businessId, id)) {
+      const plan = await loadBrandRemovalPlan(this.brandsRepo.manager, businessId, id)
+      if (!plan.ok) {
         throw new AppConflictException(
           'This brand is still used by one or more products and cannot be deleted.',
           'BRAND_IN_USE',
         )
       }
       const now = new Date()
-      await this.dataSource.transaction((manager) => removeBrand(manager, businessId, id, now))
+      await this.dataSource.transaction((manager) =>
+        applyBrandRemoval(manager, businessId, plan, now),
+      )
       this.auditService.log(context, {
         action: 'DELETE',
         entityType: 'brand',

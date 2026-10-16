@@ -26,7 +26,12 @@ describe('SyncService.applyBrandOperation', () => {
     } as any)
     expect(result.status).toBe('applied')
     expect(repo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'br-1', businessId: 'biz-1', name: 'Samsung', slug: 'samsung' }),
+      expect.objectContaining({
+        id: 'br-1',
+        businessId: 'biz-1',
+        name: 'Samsung',
+        slug: 'samsung',
+      }),
     )
   })
 

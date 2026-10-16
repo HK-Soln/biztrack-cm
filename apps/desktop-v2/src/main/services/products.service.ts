@@ -4,8 +4,10 @@ import {
   checkProductKind,
   checkProductPrices,
   checkProductSku,
+  findVariantSkuClash,
   normalizeBarcode,
   normalizeVariantSku,
+  productKindToStore,
   productStockFlags,
   productTakesVariants,
   slugify,
@@ -546,17 +548,20 @@ export class ProductsService {
     if (changes.categoryId) this.assertCategorySelectable(changes.categoryId, businessId)
     const now = new Date().toISOString()
     const before = this.getOne(id)
-    // A product's type and serial-number setting are fixed once it exists, as on the
-    // server, whose update leaves them alone (R12).
-    const input: ProductInput = before
-      ? {
-          ...changes,
-          productType: before.productType,
-          isService: before.productType === 'SERVICE',
-          isSerialized: before.isSerialized,
-          serialType: before.serialType,
-        }
-      : changes
+    // What kind the product stays is @biztrack/domain's productKindToStore (R12): fixed
+    // once it exists, as on the server.
+    const kind = productKindToStore(before ?? null, {
+      productType: productType(changes),
+      isSerialized: changes.isSerialized,
+      serialType: changes.serialType,
+    })
+    const input: ProductInput = {
+      ...changes,
+      productType: kind.productType,
+      isService: kind.productType === 'SERVICE',
+      isSerialized: kind.isSerialized,
+      serialType: kind.serialType as ProductInput['serialType'],
+    }
     const type = productType(input)
     this.assertPrices(input)
     const { isService, trackInventory: tracks } = productStockFlags(
@@ -980,23 +985,29 @@ export class ProductsService {
     businessId: string,
     entries: Array<{ sku: string | null; keepId?: string }>,
   ): void {
-    const seen = new Set<string>()
-    for (const e of entries) {
-      const sku = e.sku?.trim()
-      if (!sku) continue
-      if (seen.has(sku)) {
-        throw new Error(`The code "${sku}" is used by more than one variant. Codes must be unique.`)
-      }
-      seen.add(sku)
-      const dup = this.db.get<{ id: string }>(
-        `SELECT id FROM product_variants WHERE business_id = ? AND sku = ? AND is_deleted = 0 LIMIT 1`,
-        [businessId, sku],
+    const skus = [
+      ...new Set(entries.map((e) => normalizeVariantSku(e.sku)).filter((s): s is string => !!s)),
+    ]
+    if (skus.length === 0) return
+    const holders = this.db.query<{ id: string; sku: string }>(
+      `SELECT id, sku FROM product_variants
+        WHERE business_id = ? AND is_deleted = 0 AND sku IN (${skus.map(() => '?').join(', ')})`,
+      [businessId, ...skus],
+    )
+    // Whether a SKU clashes is @biztrack/domain's findVariantSkuClash, as on the server.
+    const clash = findVariantSkuClash(
+      entries.map((e) => ({ id: e.keepId, sku: e.sku })),
+      holders,
+    )
+    if (clash?.within) {
+      throw new Error(
+        `The code "${clash.sku}" is used by more than one variant. Codes must be unique.`,
       )
-      if (dup && dup.id !== e.keepId) {
-        throw new Error(
-          `The code "${sku}" is already used by another variant. Codes must be unique.`,
-        )
-      }
+    }
+    if (clash) {
+      throw new Error(
+        `The code "${clash.sku}" is already used by another variant. Codes must be unique.`,
+      )
     }
   }
 

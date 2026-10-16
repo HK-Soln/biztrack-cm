@@ -61,19 +61,21 @@ import type {
   JwtPayload,
 } from '@biztrack/types'
 import {
+  checkProductKind,
   checkProductSku,
-  contactNameKey,
-  debtStanding,
-  findContactClashes,
-  normalizePhone,
-  toWholeXaf,
-  validateSerialNumber,
   checkUnitEditable,
   checkUnitRemoval,
-  checkProductKind,
+  contactNameKey,
+  debtStanding,
   decideUnit,
+  findContactClashes,
+  findVariantSkuClash,
+  normalizePhone,
   normalizeVariantSku,
+  productKindToStore,
   slugify,
+  toWholeXaf,
+  validateSerialNumber,
 } from '@biztrack/domain'
 import {
   AttributeDisplayType,
@@ -126,12 +128,12 @@ import { InventoryMovement, MovementType } from '@/entities/inventory-movement.e
 import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
 import {
-  decideAttributeGroupRemoval,
+  applyAttributeGroupRemoval,
+  applyBrandRemoval,
   decideAttributeOptionRemoval,
-  decideBrandRemoval,
   decideModelRemoval,
-  removeAttributeGroup,
-  removeBrand,
+  loadAttributeGroupRemovalPlan,
+  loadBrandRemovalPlan,
 } from '@/modules/products/catalog-usage'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
@@ -1940,21 +1942,21 @@ export class SyncService {
       if (existing) {
         // As on the server's own path and the till: only an unused attribute goes, with its
         // options (R12).
-        const problem = await decideAttributeGroupRemoval(
+        const plan = await loadAttributeGroupRemovalPlan(
           this.dataSource.manager,
           businessId,
           existing.id,
         )
-        if (problem) {
+        if (!plan.ok) {
           throw new AppBadRequestException(
-            problem.cause === 'CATEGORIES'
+            plan.cause === 'CATEGORIES'
               ? 'This attribute is linked to one or more categories and cannot be deleted.'
               : 'This attribute is still used by one or more product variants and cannot be deleted.',
-            problem.code,
+            plan.code,
           )
         }
         await this.dataSource.transaction((manager) =>
-          removeAttributeGroup(manager, businessId, existing.id, operation.recordUpdatedAt),
+          applyAttributeGroupRemoval(manager, businessId, plan, operation.recordUpdatedAt),
         )
       }
       return { status: 'applied' }
@@ -2138,14 +2140,15 @@ export class SyncService {
       if (existing) {
         // As on the server's own path: only an unused brand goes, with its models and
         // category links (R12).
-        if (await decideBrandRemoval(this.dataSource.manager, businessId, existing.id)) {
+        const plan = await loadBrandRemovalPlan(this.dataSource.manager, businessId, existing.id)
+        if (!plan.ok) {
           throw new AppBadRequestException(
             'This brand is still used by one or more products and cannot be deleted.',
             'BRAND_IN_USE',
           )
         }
         await this.dataSource.transaction((manager) =>
-          removeBrand(manager, businessId, existing.id, operation.recordUpdatedAt),
+          applyBrandRemoval(manager, businessId, plan, operation.recordUpdatedAt),
         )
       }
       return { status: 'applied' }
@@ -2502,10 +2505,11 @@ export class SyncService {
     // A variant SKU is unique among the business's live variants, as on the server's own
     // path and the till (R12).
     if (fields.sku) {
-      const holder = await this.productVariantsRepo.findOne({
+      const holders = await this.productVariantsRepo.find({
+        select: { id: true, sku: true },
         where: { businessId, sku: fields.sku, deletedAt: IsNull() },
       })
-      if (holder && holder.id !== operation.recordId) {
+      if (findVariantSkuClash([{ id: operation.recordId, sku: fields.sku }], holders)) {
         throw new AppBadRequestException(
           `The code "${fields.sku}" is already used by another variant.`,
           'VARIANT_DUPLICATE_SKU',
@@ -3440,18 +3444,18 @@ export class SyncService {
     // product's type, like its serial-number setting, is fixed once it exists, as on the
     // server's own update (R12). A new one takes the payload's type, or one inferred from
     // the legacy isService flag (older clients send no productType).
-    const productType =
-      existing?.productType ?? payload.productType ?? inferProductType(payload.isService)
+    const kind = productKindToStore(existing ?? null, {
+      productType: payload.productType ?? inferProductType(payload.isService),
+      isSerialized: payload.isSerialized ?? false,
+      serialType: this.normalizeOptionalString(payload.serialType),
+    })
+    const productType = kind.productType
     const { isService, trackInventory } = deriveProductTypeFlags(
       productType,
       payload.trackInventory ?? existing?.trackInventory,
     )
     if (!existing) {
-      const problem = checkProductKind({
-        productType,
-        isSerialized: payload.isSerialized ?? false,
-        serialType: this.normalizeOptionalString(payload.serialType),
-      })
+      const problem = checkProductKind(kind)
       if (problem) {
         throw new AppBadRequestException(
           problem === 'SERIALIZED_ONLY_SIMPLE'
@@ -3502,8 +3506,8 @@ export class SyncService {
           onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
           metaDescription: this.normalizeOptionalString(payload.metaDescription),
-          isSerialized: existing.isSerialized,
-          serialType: existing.serialType,
+          isSerialized: kind.isSerialized,
+          serialType: kind.serialType,
           warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
           uniqueItems: payload.uniqueItems ?? existing.uniqueItems,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -3580,8 +3584,8 @@ export class SyncService {
           onlineStockReserve: payload.onlineStockReserve ?? 0,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
           metaDescription: this.normalizeOptionalString(payload.metaDescription),
-          isSerialized: payload.isSerialized ?? false,
-          serialType: this.normalizeOptionalString(payload.serialType),
+          isSerialized: kind.isSerialized,
+          serialType: kind.serialType,
           warrantyMonths: payload.warrantyMonths ?? null,
           uniqueItems: payload.uniqueItems ?? false,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),

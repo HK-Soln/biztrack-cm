@@ -1,9 +1,9 @@
-import { IsNull, type EntityManager } from 'typeorm'
+import { In, IsNull, type EntityManager } from 'typeorm'
 import {
-  checkAttributeGroupRemoval,
   checkAttributeOptionRemoval,
-  checkBrandRemoval,
   checkModelRemoval,
+  planAttributeGroupRemoval,
+  planBrandRemoval,
 } from '@biztrack/domain'
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
@@ -13,8 +13,9 @@ import { CategoryAttributeGroup } from '@/entities/category-attribute-group.enti
 import { Model } from '@/entities/model.entity'
 
 // Loads what the brand, model and attribute removal rules in @biztrack/domain need, and
-// removes a brand or an attribute with what belongs to it. The server's own endpoints and
-// deletes arriving by sync from a till both use these (ruling R12).
+// saves the removal plan the domain returns (what goes, the brand's models and links, the
+// attribute's options). The server's own endpoints and deletes arriving by sync from a
+// till both use these (ruling R12); nothing here decides what is removed.
 
 const liveProductsUsing = async (
   manager: EntityManager,
@@ -47,12 +48,28 @@ const liveVariantsUsing = async (
   return row?.n ?? 0
 }
 
-export async function decideBrandRemoval(
+/** @biztrack/domain's plan for deleting a brand, from what is loaded here. */
+export async function loadBrandRemovalPlan(
   manager: EntityManager,
   businessId: string,
   brandId: string,
 ) {
-  return checkBrandRemoval(await liveProductsUsing(manager, 'brand_id', businessId, brandId))
+  const [models, links] = await Promise.all([
+    manager.getRepository(Model).find({
+      select: { id: true },
+      where: { brandId, businessId, deletedAt: IsNull() },
+    }),
+    manager.getRepository(BrandCategory).find({
+      select: { id: true },
+      where: { brandId, businessId, deletedAt: IsNull() },
+    }),
+  ])
+  return planBrandRemoval({
+    brandId,
+    productCount: await liveProductsUsing(manager, 'brand_id', businessId, brandId),
+    modelIds: models.map((m) => m.id),
+    categoryLinkIds: links.map((l) => l.id),
+  })
 }
 
 export async function decideModelRemoval(
@@ -63,16 +80,23 @@ export async function decideModelRemoval(
   return checkModelRemoval(await liveProductsUsing(manager, 'model_id', businessId, modelId))
 }
 
-export async function decideAttributeGroupRemoval(
+/** @biztrack/domain's plan for deleting an attribute, from what is loaded here. */
+export async function loadAttributeGroupRemovalPlan(
   manager: EntityManager,
   businessId: string,
   groupId: string,
 ) {
-  return checkAttributeGroupRemoval({
+  const options = await manager.getRepository(AttributeOption).find({
+    select: { id: true },
+    where: { groupId, businessId, deletedAt: IsNull() },
+  })
+  return planAttributeGroupRemoval({
+    groupId,
     variantUses: await liveVariantsUsing(manager, 'attribute_group_id', businessId, groupId),
     categoryLinks: await manager.getRepository(CategoryAttributeGroup).count({
       where: { attributeGroupId: groupId, businessId, deletedAt: IsNull() },
     }),
+    optionIds: options.map((o) => o.id),
   })
 }
 
@@ -86,35 +110,47 @@ export async function decideAttributeOptionRemoval(
   )
 }
 
-/** Deletes a brand with its models and its category links. Run in a transaction. */
-export async function removeBrand(
+/** Saves a brand removal plan. Run in a transaction. */
+export async function applyBrandRemoval(
   manager: EntityManager,
   businessId: string,
-  brandId: string,
+  plan: { brandIds: string[]; modelIds: string[]; categoryLinkIds: string[] },
   at: Date,
 ): Promise<void> {
-  await manager
-    .getRepository(Model)
-    .update({ brandId, businessId, deletedAt: IsNull() }, { isActive: false, deletedAt: at })
-  await manager
-    .getRepository(BrandCategory)
-    .update({ brandId, businessId, deletedAt: IsNull() }, { deletedAt: at })
+  if (plan.modelIds.length) {
+    await manager
+      .getRepository(Model)
+      .update({ id: In(plan.modelIds), businessId }, { isActive: false, deletedAt: at })
+  }
+  if (plan.categoryLinkIds.length) {
+    await manager
+      .getRepository(BrandCategory)
+      .update({ id: In(plan.categoryLinkIds), businessId }, { deletedAt: at })
+  }
   await manager
     .getRepository(Brand)
-    .update({ id: brandId, businessId }, { isActive: false, deletedAt: at, updatedAt: at })
+    .update(
+      { id: In(plan.brandIds), businessId },
+      { isActive: false, deletedAt: at, updatedAt: at },
+    )
 }
 
-/** Deletes an attribute with its options. Run in a transaction. */
-export async function removeAttributeGroup(
+/** Saves an attribute removal plan. Run in a transaction. */
+export async function applyAttributeGroupRemoval(
   manager: EntityManager,
   businessId: string,
-  groupId: string,
+  plan: { groupIds: string[]; optionIds: string[] },
   at: Date,
 ): Promise<void> {
   await manager
     .getRepository(AttributeGroup)
-    .update({ id: groupId, businessId }, { isActive: false, deletedAt: at, updatedAt: at })
-  await manager
-    .getRepository(AttributeOption)
-    .update({ groupId, businessId, deletedAt: IsNull() }, { isActive: false, deletedAt: at })
+    .update(
+      { id: In(plan.groupIds), businessId },
+      { isActive: false, deletedAt: at, updatedAt: at },
+    )
+  if (plan.optionIds.length) {
+    await manager
+      .getRepository(AttributeOption)
+      .update({ id: In(plan.optionIds), businessId }, { isActive: false, deletedAt: at })
+  }
 }

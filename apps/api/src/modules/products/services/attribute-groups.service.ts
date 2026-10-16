@@ -24,9 +24,9 @@ import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import {
-  decideAttributeGroupRemoval,
+  applyAttributeGroupRemoval,
   decideAttributeOptionRemoval,
-  removeAttributeGroup,
+  loadAttributeGroupRemovalPlan,
 } from '@/modules/products/catalog-usage'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
@@ -166,22 +166,22 @@ export class AttributeGroupsService {
   async removeGroup(id: string, businessId: string): Promise<void> {
     try {
       await this.requireGroup(id, businessId)
-      const problem = await decideAttributeGroupRemoval(this.groupsRepo.manager, businessId, id)
-      if (problem?.cause === 'CATEGORIES') {
+      const plan = await loadAttributeGroupRemovalPlan(this.groupsRepo.manager, businessId, id)
+      if (!plan.ok && plan.cause === 'CATEGORIES') {
         throw new AppConflictException(
           await this.i18n.translate('errors.attribute_group_in_use'),
-          problem.code,
+          plan.code,
         )
       }
-      if (problem) {
+      if (!plan.ok) {
         throw new AppConflictException(
           'This attribute is still used by one or more product variants and cannot be deleted.',
-          problem.code,
+          plan.code,
         )
       }
       // Soft-delete the group and its options.
       await this.groupsRepo.manager.transaction((manager) =>
-        removeAttributeGroup(manager, businessId, id, new Date()),
+        applyAttributeGroupRemoval(manager, businessId, plan, new Date()),
       )
     } catch (error) {
       return this.handleServiceError('removeGroup', error, { id, businessId })

@@ -54,7 +54,12 @@ export class ProductSerialUnitsController {
     @Body() dto: AddSerialUnitsDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<ProductSerialUnit[]> {
-    const created = await this.serialUnitsService.add(productId, user.businessId as string, dto, auditContext)
+    const created = await this.serialUnitsService.add(
+      productId,
+      user.businessId as string,
+      dto,
+      auditContext,
+    )
     return serializeDtos(created, (unit) => SerialUnitDto.fromEntity(unit)!)
   }
 
@@ -92,6 +97,12 @@ export class ProductSerialUnitsController {
     @Body() dto: RetireSerialUnitDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<void> {
-    return this.serialUnitsService.retire(productId, unitId, user.businessId as string, dto, auditContext)
+    return this.serialUnitsService.retire(
+      productId,
+      unitId,
+      user.businessId as string,
+      dto,
+      auditContext,
+    )
   }
 }

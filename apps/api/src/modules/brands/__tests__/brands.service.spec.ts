@@ -44,7 +44,13 @@ function makeService(
       }
       return qb
     }),
-    manager: { query: jest.fn().mockResolvedValue(opts.brandInUse ? [{ n: 1 }] : []) },
+    // The removal plan loads usage and the brand's models and links through the manager.
+    manager: {
+      query: jest.fn().mockResolvedValue([{ n: opts.brandInUse ? 1 : 0 }]),
+      getRepository: jest.fn(() => ({
+        find: jest.fn(async () => [{ id: 'linked-1' }]),
+      })),
+    },
   }
   const modelsRepo = {
     findOne: jest.fn(async () => opts.model ?? null),
@@ -134,13 +140,16 @@ describe('BrandsService', () => {
   it('remove: soft-deletes models + links + brand, audits DELETE', async () => {
     const { service, mBrandRepo, mModelRepo, mLinkRepo, auditService } = makeService()
     await service.remove('b1', 'biz-1', ctxArg)
-    expect(mModelRepo.update).toHaveBeenCalled()
+    expect(mModelRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: 'biz-1' }),
+      expect.objectContaining({ isActive: false }),
+    )
     expect(mLinkRepo.update).toHaveBeenCalledWith(
-      expect.objectContaining({ brandId: 'b1', businessId: 'biz-1' }),
+      expect.objectContaining({ businessId: 'biz-1' }),
       expect.objectContaining({ deletedAt: expect.any(Date) }),
     )
     expect(mBrandRepo.update).toHaveBeenCalledWith(
-      { id: 'b1', businessId: 'biz-1' },
+      expect.objectContaining({ businessId: 'biz-1' }),
       expect.objectContaining({ isActive: false }),
     )
     expect(auditService.log).toHaveBeenCalledWith(

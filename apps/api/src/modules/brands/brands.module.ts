@@ -9,7 +9,11 @@ import { BrandsController } from './controllers/brands.controller'
 import { BrandsService } from './services/brands.service'
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Brand, Model, BrandCategory]), AuditModule, PermissionsModule],
+  imports: [
+    TypeOrmModule.forFeature([Brand, Model, BrandCategory]),
+    AuditModule,
+    PermissionsModule,
+  ],
   controllers: [BrandsController],
   providers: [BrandsService],
   exports: [BrandsService],

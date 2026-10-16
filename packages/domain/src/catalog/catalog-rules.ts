@@ -238,3 +238,61 @@ export function bundleCanMake(
   if (components.length === 0 || canMake === Infinity) return { canMake: 0, limitedBy: null }
   return { canMake, limitedBy: canMake === 0 ? limitedBy : null }
 }
+
+/**
+ * A product's kind as stored: what was asked for when the product is new; once it exists
+ * its type and serial-number setting stay as they are (the server's rule).
+ */
+export function productKindToStore<T extends ProductType | `${ProductType}`>(
+  existing: { productType: T; isSerialized?: boolean | null; serialType?: string | null } | null,
+  requested: { productType: T; isSerialized?: boolean | null; serialType?: string | null },
+): { productType: T; isSerialized: boolean; serialType: string | null; changedIgnored: boolean } {
+  if (!existing) {
+    return {
+      productType: requested.productType,
+      isSerialized: !!requested.isSerialized,
+      serialType: requested.serialType ?? null,
+      changedIgnored: false,
+    }
+  }
+  const isSerialized = !!existing.isSerialized
+  const serialType = existing.serialType ?? null
+  const changedIgnored =
+    requested.productType !== existing.productType ||
+    !!requested.isSerialized !== isSerialized ||
+    (!!requested.isSerialized && (requested.serialType ?? null) !== serialType)
+  return { productType: existing.productType, isSerialized, serialType, changedIgnored }
+}
+
+/** What deleting a brand removes, or why it cannot be deleted. */
+export function planBrandRemoval(input: {
+  brandId: string
+  productCount: number
+  modelIds: readonly string[]
+  categoryLinkIds: readonly string[]
+}):
+  | { ok: false; code: 'BRAND_IN_USE' }
+  | { ok: true; brandIds: string[]; modelIds: string[]; categoryLinkIds: string[] } {
+  const problem = checkBrandRemoval(input.productCount)
+  if (problem) return { ok: false, code: problem }
+  return {
+    ok: true,
+    brandIds: [input.brandId],
+    modelIds: [...input.modelIds],
+    categoryLinkIds: [...input.categoryLinkIds],
+  }
+}
+
+/** What deleting an attribute removes, or why it cannot be deleted. */
+export function planAttributeGroupRemoval(input: {
+  groupId: string
+  variantUses: number
+  categoryLinks: number
+  optionIds: readonly string[]
+}):
+  | { ok: false; code: 'ATTRIBUTE_GROUP_IN_USE'; cause: 'VARIANTS' | 'CATEGORIES' }
+  | { ok: true; groupIds: string[]; optionIds: string[] } {
+  const problem = checkAttributeGroupRemoval(input)
+  if (problem) return { ok: false, ...problem }
+  return { ok: true, groupIds: [input.groupId], optionIds: [...input.optionIds] }
+}

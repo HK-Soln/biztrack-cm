@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { checkBrandRemoval, checkModelRemoval, slugify, uniqueSlug } from '@biztrack/domain'
+import { checkModelRemoval, planBrandRemoval, slugify, uniqueSlug } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   BrandInput,
@@ -199,28 +199,46 @@ export class BrandsService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOne(id)
-    const inUse = this.db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM products WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
-      [id, businessId],
-    )
-    if (checkBrandRemoval(inUse?.n ?? 0)) {
+    const ids = (sql: string) =>
+      this.db.query<{ id: string }>(sql, [id, businessId]).map((r) => r.id)
+    // What goes is @biztrack/domain's planBrandRemoval, as on the server, which saves the
+    // same plan when the delete syncs.
+    const plan = planBrandRemoval({
+      brandId: id,
+      productCount:
+        this.db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM products WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )?.n ?? 0,
+      modelIds: ids(
+        `SELECT id FROM models WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
+      ),
+      categoryLinkIds: ids(
+        `SELECT id FROM brand_categories WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
+      ),
+    })
+    if (!plan.ok) {
       throw new Error('This brand is still used by one or more products and cannot be deleted.')
     }
-    // Its models and category links go with it, as on the server, which does the same when
-    // the delete syncs.
     this.db.transaction(() => {
-      this.db.run(
-        `UPDATE brands SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
-        [now, id, businessId],
-      )
-      this.db.run(
-        `UPDATE models SET is_deleted = 1, is_active = 0, updated_at = ? WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
-        [now, id, businessId],
-      )
-      this.db.run(
-        `UPDATE brand_categories SET is_deleted = 1, updated_at = ? WHERE brand_id = ? AND business_id = ? AND is_deleted = 0`,
-        [now, id, businessId],
-      )
+      for (const brandId of plan.brandIds) {
+        this.db.run(
+          `UPDATE brands SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, brandId, businessId],
+        )
+      }
+      for (const modelId of plan.modelIds) {
+        this.db.run(
+          `UPDATE models SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, modelId, businessId],
+        )
+      }
+      for (const linkId of plan.categoryLinkIds) {
+        this.db.run(
+          `UPDATE brand_categories SET is_deleted = 1, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, linkId, businessId],
+        )
+      }
     })
     this.enqueue('brands', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()

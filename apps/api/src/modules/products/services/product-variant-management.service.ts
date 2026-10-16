@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { normalizeVariantSku } from '@biztrack/domain'
+import { findVariantSkuClash, normalizeVariantSku } from '@biztrack/domain'
 import { removeVariant } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -308,10 +308,11 @@ export class ProductVariantManagementService {
     excludeVariantId: string | null,
   ): Promise<void> {
     if (!sku) return
-    const dup = await this.variantsRepo.findOne({
+    const holders = await this.variantsRepo.find({
+      select: { id: true, sku: true },
       where: { businessId, sku, deletedAt: IsNull() },
     })
-    if (dup && dup.id !== excludeVariantId) {
+    if (findVariantSkuClash([{ id: excludeVariantId, sku }], holders)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.variant_duplicate_sku', { args: { sku } }),
         'VARIANT_DUPLICATE_SKU',

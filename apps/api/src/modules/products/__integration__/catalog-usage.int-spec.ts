@@ -8,12 +8,12 @@ import { CategoryAttributeGroup } from '@/entities/category-attribute-group.enti
 import { Model } from '@/entities/model.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
 import {
-  decideAttributeGroupRemoval,
+  applyAttributeGroupRemoval,
+  applyBrandRemoval,
   decideAttributeOptionRemoval,
-  decideBrandRemoval,
   decideModelRemoval,
-  removeAttributeGroup,
-  removeBrand,
+  loadAttributeGroupRemovalPlan,
+  loadBrandRemovalPlan,
 } from '@/modules/products/catalog-usage'
 import {
   closeIntegrationDataSource,
@@ -86,22 +86,27 @@ describe('brand, model and attribute removal', () => {
       product,
     ])
 
-    expect(await decideBrandRemoval(dataSource.manager, h.businessId, brand.id)).toBe(
-      'BRAND_IN_USE',
-    )
+    expect(await loadBrandRemovalPlan(dataSource.manager, h.businessId, brand.id)).toEqual({
+      ok: false,
+      code: 'BRAND_IN_USE',
+    })
     expect(await decideModelRemoval(dataSource.manager, h.businessId, model.id)).toBe(
       'MODEL_IN_USE',
     )
 
     await dataSource.query(`UPDATE products SET deleted_at = now() WHERE id = $1`, [product])
-    expect(await decideBrandRemoval(dataSource.manager, h.businessId, brand.id)).toBeNull()
+    expect((await loadBrandRemovalPlan(dataSource.manager, h.businessId, brand.id)).ok).toBe(true)
     expect(await decideModelRemoval(dataSource.manager, h.businessId, model.id)).toBeNull()
   })
 
   it('deletes a brand with its models and category links', async () => {
     const { brand } = await seedBrand()
 
-    await dataSource.transaction((m) => removeBrand(m, h.businessId, brand.id, at))
+    const plan = await loadBrandRemovalPlan(dataSource.manager, h.businessId, brand.id)
+    if (!plan.ok) throw new Error('expected a removable brand')
+    expect(plan.modelIds).toHaveLength(1)
+    expect(plan.categoryLinkIds).toHaveLength(1)
+    await dataSource.transaction((m) => applyBrandRemoval(m, h.businessId, plan, at))
 
     const rows = (await dataSource.query(
       `SELECT
@@ -131,16 +136,15 @@ describe('brand, model and attribute removal', () => {
         attributeGroupId: colour.id,
       }),
     )
-    expect(await decideAttributeGroupRemoval(dataSource.manager, h.businessId, colour.id)).toEqual({
-      code: 'ATTRIBUTE_GROUP_IN_USE',
-      cause: 'CATEGORIES',
-    })
+    expect(
+      await loadAttributeGroupRemovalPlan(dataSource.manager, h.businessId, colour.id),
+    ).toEqual({ ok: false, code: 'ATTRIBUTE_GROUP_IN_USE', cause: 'CATEGORIES' })
 
     await links.softDelete(link.id)
-    expect(
-      await decideAttributeGroupRemoval(dataSource.manager, h.businessId, colour.id),
-    ).toBeNull()
-    await dataSource.transaction((m) => removeAttributeGroup(m, h.businessId, colour.id, at))
+    const plan = await loadAttributeGroupRemovalPlan(dataSource.manager, h.businessId, colour.id)
+    if (!plan.ok) throw new Error('expected a removable attribute')
+    expect(plan.optionIds).toEqual([red.id])
+    await dataSource.transaction((m) => applyAttributeGroupRemoval(m, h.businessId, plan, at))
 
     const [option] = (await dataSource.query(
       `SELECT deleted_at IS NOT NULL AS deleted, is_active FROM attribute_options WHERE id = $1`,

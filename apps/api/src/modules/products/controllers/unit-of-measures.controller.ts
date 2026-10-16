@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
 import type { JwtPayload, PaginatedResult, UnitOfMeasure } from '@biztrack/types'
@@ -18,7 +30,7 @@ import { UnitOfMeasure as UnitOfMeasureEntity } from '@/entities/unit-of-measure
 @UseGuards(Phase2Guard, ResourceGuard)
 @Controller('unit-of-measures')
 export class UnitOfMeasuresController {
-  constructor(private readonly unitOfMeasuresService: UnitOfMeasuresService) { }
+  constructor(private readonly unitOfMeasuresService: UnitOfMeasuresService) {}
 
   @Get()
   @RequireResource(Resource.PRODUCTS_VIEW)
@@ -43,7 +55,10 @@ export class UnitOfMeasuresController {
   ): Promise<UnitOfMeasure> {
     return serializeDto(
       UnitOfMeasureDto.fromEntity(
-        await this.unitOfMeasuresService.create(user.businessId as string, dto) as unknown as UnitOfMeasureEntity,
+        (await this.unitOfMeasuresService.create(
+          user.businessId as string,
+          dto,
+        )) as unknown as UnitOfMeasureEntity,
       )!,
     )
   }

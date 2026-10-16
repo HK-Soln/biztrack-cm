@@ -6,4 +6,4 @@ import type { UnitOfMeasuresQuery } from '@biztrack/types'
  * Reuses base ListQueryDto with no additional filters currently
  * Can be extended in future if filtering is needed (e.g., by type)
  */
-export class ListUnitOfMeasuresQueryDto extends ListQueryDto implements UnitOfMeasuresQuery { }
+export class ListUnitOfMeasuresQueryDto extends ListQueryDto implements UnitOfMeasuresQuery {}

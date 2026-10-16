@@ -114,7 +114,12 @@ export class AttributeGroupsController {
   ): Promise<AttributeOption> {
     return serializeDto(
       AttributeOptionDto.fromEntity(
-        await this.attributeGroupsService.updateOption(id, optionId, user.businessId as string, dto),
+        await this.attributeGroupsService.updateOption(
+          id,
+          optionId,
+          user.businessId as string,
+          dto,
+        ),
       )!,
     )
   }

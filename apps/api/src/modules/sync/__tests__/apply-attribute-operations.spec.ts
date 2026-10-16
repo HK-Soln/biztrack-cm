@@ -17,7 +17,10 @@ const makeGroupService = (existing: unknown, { variantUses = 0, categoryLinks = 
   const txRepo = { update: jest.fn() }
   const manager = {
     query: jest.fn().mockResolvedValue([{ n: variantUses }]),
-    getRepository: jest.fn(() => ({ count: jest.fn().mockResolvedValue(categoryLinks) })),
+    getRepository: jest.fn(() => ({
+      count: jest.fn().mockResolvedValue(categoryLinks),
+      find: jest.fn().mockResolvedValue([{ id: 'opt-1' }]),
+    })),
   }
   const service = Object.create(SyncService.prototype) as any
   service.attributeGroupsRepo = repo
@@ -81,12 +84,10 @@ describe('SyncService.applyAttributeGroupOperation', () => {
     })
     const result = await service.applyAttributeGroupOperation('biz-1', op({ action: 'DELETE' }))
     expect(result.status).toBe('applied')
+    // The plan names the attribute and its one option; both are written off.
+    expect(txRepo.update).toHaveBeenCalledTimes(2)
     expect(txRepo.update).toHaveBeenCalledWith(
-      { id: 'grp-1', businessId: 'biz-1' },
-      expect.objectContaining({ isActive: false }),
-    )
-    expect(txRepo.update).toHaveBeenCalledWith(
-      expect.objectContaining({ groupId: 'grp-1' }),
+      expect.objectContaining({ businessId: 'biz-1' }),
       expect.objectContaining({ isActive: false }),
     )
   })

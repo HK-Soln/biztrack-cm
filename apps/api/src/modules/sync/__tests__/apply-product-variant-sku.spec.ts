@@ -15,8 +15,9 @@ const op = (payload: Record<string, unknown>) =>
 
 const makeService = (holder: unknown) => {
   const repo = {
-    // First lookup: the variant itself (new here); second: who holds the SKU.
-    findOne: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(holder),
+    // The variant itself (new here), then who holds the SKU.
+    findOne: jest.fn().mockResolvedValue(null),
+    find: jest.fn().mockResolvedValue(holder ? [holder] : []),
     update: jest.fn(),
     save: jest.fn(async (e) => e),
     create: jest.fn((e) => e),
@@ -33,9 +34,11 @@ describe('SyncService.applyProductVariantOperation — variant SKU (R12)', () =>
     await expect(
       service.applyProductVariantOperation('biz-1', op({ sku: ' TS-RED ' })),
     ).rejects.toMatchObject({ code: 'VARIANT_DUPLICATE_SKU' })
-    expect(repo.findOne).toHaveBeenLastCalledWith({
-      where: expect.objectContaining({ businessId: 'biz-1', sku: 'TS-RED' }),
-    })
+    expect(repo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ businessId: 'biz-1', sku: 'TS-RED' }),
+      }),
+    )
     expect(repo.save).not.toHaveBeenCalled()
   })
 })

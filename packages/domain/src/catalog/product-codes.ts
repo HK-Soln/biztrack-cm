@@ -52,3 +52,28 @@ export function normalizeVariantSku(raw: string | null | undefined): string | nu
   const sku = (raw ?? '').trim()
   return sku ? sku : null
 }
+
+/**
+ * Which variant SKU, if any, cannot be stored: one given twice in `entries`, or one a live
+ * variant outside `entries` already holds. `holders` are the business's live variants
+ * holding any of the SKUs, as loaded.
+ */
+export function findVariantSkuClash(
+  entries: ReadonlyArray<{ id?: string | null; sku: string | null | undefined }>,
+  holders: ReadonlyArray<{ id: string; sku?: string | null }>,
+): { code: 'VARIANT_DUPLICATE_SKU'; sku: string; within: boolean } | null {
+  const seen = new Set<string>()
+  const ownIds = new Set(entries.map((e) => e.id).filter((id): id is string => !!id))
+  for (const entry of entries) {
+    const sku = normalizeVariantSku(entry.sku)
+    if (!sku) continue
+    if (seen.has(sku)) return { code: 'VARIANT_DUPLICATE_SKU', sku, within: true }
+    seen.add(sku)
+    // A holder that is itself among the entries is being rewritten, so its loaded SKU
+    // does not count; a clash inside the entries is caught above.
+    if (holders.some((h) => h.sku === sku && !ownIds.has(h.id))) {
+      return { code: 'VARIANT_DUPLICATE_SKU', sku, within: false }
+    }
+  }
+  return null
+}

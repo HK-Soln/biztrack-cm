@@ -31,9 +31,9 @@ describe('Products module controller permissions', () => {
     expect(Reflect.getMetadata('required_resource', ProductsController.prototype.findAll)).toBe(
       Resource.PRODUCTS_VIEW,
     )
-    expect(Reflect.getMetadata('required_resource', ProductsController.prototype.assignBarcode)).toBe(
-      Resource.PRODUCTS_EDIT,
-    )
+    expect(
+      Reflect.getMetadata('required_resource', ProductsController.prototype.assignBarcode),
+    ).toBe(Resource.PRODUCTS_EDIT)
     expect(Reflect.getMetadata('required_resource', ProductsController.prototype.remove)).toBe(
       Resource.PRODUCTS_DELETE,
     )
@@ -43,8 +43,8 @@ describe('Products module controller permissions', () => {
     expect(Reflect.getMetadata('required_resource', ProductImagesController.prototype.update)).toBe(
       Resource.PRODUCTS_EDIT,
     )
-    expect(Reflect.getMetadata('required_resource', UnitOfMeasuresController.prototype.findAll)).toBe(
-      Resource.PRODUCTS_VIEW,
-    )
+    expect(
+      Reflect.getMetadata('required_resource', UnitOfMeasuresController.prototype.findAll),
+    ).toBe(Resource.PRODUCTS_VIEW)
   })
 })

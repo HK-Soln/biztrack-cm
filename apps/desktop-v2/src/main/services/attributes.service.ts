@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { checkAttributeGroupRemoval, checkAttributeOptionRemoval } from '@biztrack/domain'
+import { checkAttributeOptionRemoval, planAttributeGroupRemoval } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   AttributeDisplayType,
@@ -228,31 +228,45 @@ export class AttributesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getGroup(id)
-    const problem = checkAttributeGroupRemoval({
+    // What goes is @biztrack/domain's planAttributeGroupRemoval, as on the server, which
+    // saves the same plan when the delete syncs.
+    const plan = planAttributeGroupRemoval({
+      groupId: id,
       variantUses: this.variantUses('attribute_group_id', id, businessId),
       categoryLinks:
         this.db.get<{ n: number }>(
           `SELECT COUNT(*) AS n FROM category_attribute_groups WHERE attribute_group_id = ? AND business_id = ? AND is_deleted = 0`,
           [id, businessId],
         )?.n ?? 0,
+      optionIds: this.db
+        .query<{
+          id: string
+        }>(
+          `SELECT id FROM attribute_options WHERE group_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )
+        .map((r) => r.id),
     })
-    if (problem) {
+    if (!plan.ok) {
       throw new Error(
-        problem.cause === 'CATEGORIES'
+        plan.cause === 'CATEGORIES'
           ? 'This attribute is linked to one or more categories and cannot be deleted.'
           : 'This attribute is still used by one or more product variants and cannot be deleted.',
       )
     }
-    // Its options go with it, as on the server, which does the same when the delete syncs.
     this.db.transaction(() => {
-      this.db.run(
-        `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
-        [now, id, businessId],
-      )
-      this.db.run(
-        `UPDATE attribute_options SET is_deleted = 1, is_active = 0, updated_at = ? WHERE group_id = ? AND business_id = ? AND is_deleted = 0`,
-        [now, id, businessId],
-      )
+      for (const groupId of plan.groupIds) {
+        this.db.run(
+          `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, groupId, businessId],
+        )
+      }
+      for (const optionId of plan.optionIds) {
+        this.db.run(
+          `UPDATE attribute_options SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [now, optionId, businessId],
+        )
+      }
     })
     this.enqueue('attributeGroups', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
